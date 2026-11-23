@@ -1,0 +1,34 @@
+modLoader="javafml"
+loaderVersion="${loader_version_range}"
+license="${mod_license}"
+
+[[mods]]
+modId="${mod_id}"
+version="${mod_version}"
+displayName="${mod_name}"
+logoFile="magma_logo.png"
+displayURL="https://github.com/jjtjtyt6644/Magma-Client"
+authors="Magma"
+description='''
+Client-side utility mod: Lava Guard (warns and blocks mining into lava), Ore X-Ray, Quartz Auto-Miner, and a modern ClickGUI (Right Shift).
+'''
+
+[[dependencies.${mod_id}]]
+    modId="neoforge"
+    type="required"
+    versionRange="[${neo_version},)"
+    ordering="NONE"
+    side="CLIENT"
+
+[[dependencies.${mod_id}]]
+    modId="minecraft"
+    type="required"
+    versionRange="${minecraft_version_range}"
+    ordering="NONE"
+    side="CLIENT"
+
+[[mixins]]
+config="magmaclient.mixins.json"
+
+[[mixins]]
+config="magmaclient.optional.mixins.json"
