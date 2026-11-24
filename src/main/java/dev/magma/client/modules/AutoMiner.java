@@ -87,7 +87,7 @@ public class AutoMiner extends Module {
     private BlockPos deathPos, portal;
     private net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> deathDim;
     private boolean dead;
-    private int deathTicks, portalTicks, deathTrips;
+    private int deathTicks, portalTicks, deathTrips, portalFails;
     private OreScanner.Job portalJob;
     private boolean eating;
     private int eatPrevSlot = -1;
@@ -1076,9 +1076,16 @@ public class AutoMiner extends Module {
             portal = null;
             portalJob = null;
             deathTrips = 0;
+            portalFails = 0;
             boolean diedInNether = deathDim == net.minecraft.world.level.Level.NETHER;
-            state = diedInNether && mc.level.dimension() != net.minecraft.world.level.Level.NETHER ? State.FIND_PORTAL
-                    : (deathSpot.get() && deathPos != null ? State.RETURN_DEATH : State.SEARCH);
+            if (diedInNether && mc.level.dimension() != net.minecraft.world.level.Level.NETHER) {
+                state = State.FIND_PORTAL; // look for a portal nearby; stops if there isn't one in render distance
+            } else {
+                // died outside the Nether: don't wander off mining from your spawn point - just stop
+                Chat.info("AutoMiner: respawned - stopped (only returns automatically for Nether deaths with a portal nearby).");
+                halt();
+                return true;
+            }
         }
         return false;
     }
@@ -1091,7 +1098,9 @@ public class AutoMiner extends Module {
         }
         if (portal == null) {
             status = "Looking for a Nether portal...";
-            if (portalJob == null) portalJob = new OreScanner.Job(feet(), 96, st -> st.is(Blocks.NETHER_PORTAL), 64);
+            // only what you can actually see: your render distance (capped at 96 blocks)
+            int range = Math.min(96, mc.options.getEffectiveRenderDistance() * 16);
+            if (portalJob == null) portalJob = new OreScanner.Job(feet(), range, st -> st.is(Blocks.NETHER_PORTAL), 64);
             if (!portalJob.step(mc.level, 6)) return;
             List<BlockPos> found = portalJob.result();
             portalJob = null;
@@ -1099,8 +1108,9 @@ public class AutoMiner extends Module {
                 if (!mc.level.getBlockState(p.below()).is(Blocks.NETHER_PORTAL)) { portal = p; break; } // bottom block of the frame
             }
             if (portal == null) {
-                status = "No Nether portal within 96 blocks";
-                cooldown = 100;
+                Chat.info("AutoMiner: no Nether portal within your render distance - stopped. Walk to a portal and start it again.");
+                dev.magma.client.util.Notify.show("No portal nearby - AutoMiner stopped", Theme.WARN);
+                halt();
                 return;
             }
             Chat.info("AutoMiner: found a portal at " + portal.toShortString() + ", walking there.");
@@ -1121,6 +1131,10 @@ public class AutoMiner extends Module {
         } else {
             status = "Can't find a safe way to the portal";
             cooldown = 60;
+            if (++portalFails > 3) {
+                Chat.info("AutoMiner: no safe way to the portal - stopped.");
+                halt();
+            }
         }
     }
 
