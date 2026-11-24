@@ -504,19 +504,26 @@ public class MenuScreen extends Screen {
         String title = st == dev.magma.client.util.Updater.State.READY ? "Update ready" : "Magma " + dev.magma.client.util.Updater.latest() + " is out";
         text(g, title, x + 28, y + 5, Theme.TEXT);
         text(g, clip(dev.magma.client.util.Updater.message(), (int) w - 130), x + 28, y + 16, 0xFF8B92A1);
-        if (st == dev.magma.client.util.Updater.State.AVAILABLE) {
+        boolean quitting = dev.magma.client.util.Updater.quitting();
+        if (st == dev.magma.client.util.Updater.State.DOWNLOADING) {
+            float bw = 90, bx = x + w - bw - 7;
+            Render2D.roundedRect(g, bx, y + 8, bw, 4, 2, a(0xFF2A2E38));
+            Render2D.roundedRect(g, bx, y + 8, Math.max(4, bw * dev.magma.client.util.Updater.progress()), 4, 2, a(Theme.accent()));
+            text(g, quitting ? "closing when done" : "downloading", bx, y + 15, 0xFF8B92A1);
+        } else {
+            if (!dev.magma.client.util.Updater.canInstall()) {
+                // the dev/test copy runs from source and can't replace its own jar
+                text(g, "Test copy: install from GitHub", x + w - 7 - font.width("Test copy: install from GitHub"), y + 10, 0xFF8B92A1);
+                return y + 36;
+            }
+            String label = st == dev.magma.client.util.Updater.State.READY ? "Restart now" : "Update & restart";
             Object key = "update";
             float hv = anim(key, hov(key) ? 1 : 0, 16);
-            float bw = 70, bx = x + w - bw - 7;
+            float bw = font.width(label) + 16, bx = x + w - bw - 7;
             Render2D.roundedRect(g, bx, y + 7, bw, 14, 4, a(ColorUtil.lerp(Theme.accent(), Theme.accent2(), hv)));
-            text(g, "Update", bx + bw / 2f - font.width("Update") / 2f, y + 10, 0xFF120A06);
-            chit(bx, y + 7, bw, 14, key, b -> dev.magma.client.util.Updater.downloadAsync(), "Download now; it installs when you restart Minecraft");
-        } else if (st == dev.magma.client.util.Updater.State.DOWNLOADING) {
-            float bw = 70, bx = x + w - bw - 7;
-            Render2D.roundedRect(g, bx, y + 12, bw, 4, 2, a(0xFF2A2E38));
-            Render2D.roundedRect(g, bx, y + 12, Math.max(4, bw * dev.magma.client.util.Updater.progress()), 4, 2, a(Theme.accent()));
-        } else {
-            text(g, "\u2714 Restart", x + w - 62, y + 10, Theme.OK);
+            text(g, label, bx + bw / 2f - font.width(label) / 2f, y + 10, 0xFF120A06);
+            chit(bx, y + 7, bw, 14, key, b -> dev.magma.client.util.Updater.installAndRestart(),
+                    "Saves and closes Minecraft, swaps in the new Magma jar (old one removed). Then press Play again.");
         }
         return y + 36;
     }
@@ -914,13 +921,13 @@ public class MenuScreen extends Screen {
 
         y = section(g, "Updates", x, y, w);
         var st = dev.magma.client.util.Updater.state();
-        Render2D.roundedRect(g, x, y, w, 8 + 16 + groupRows(List.of(c.checkUpdates, c.autoUpdate, c.checkNow)), ROW_R, a(SURFACE));
+        Render2D.roundedRect(g, x, y, w, 8 + 16 + groupRows(List.of(c.checkUpdates, c.autoUpdate, c.installNow, c.checkNow)), ROW_R, a(SURFACE));
         text(g, "Version " + MagmaClient.VERSION, x + 10, y + 8, Theme.TEXT);
         String msg = dev.magma.client.util.Updater.message();
         if (!msg.isEmpty()) text(g, clip(msg, (int) w - 110), x + 100, y + 8,
                 st == dev.magma.client.util.Updater.State.AVAILABLE || st == dev.magma.client.util.Updater.State.READY ? Theme.accent() : 0xFF5C6373);
         y += 20;
-        for (Setting<?> st2 : List.of(c.checkUpdates, c.autoUpdate, c.checkNow)) y = drawSettingRow(g, st2, x + 10, y, w - 20);
+        for (Setting<?> st2 : List.of(c.checkUpdates, c.autoUpdate, c.installNow, c.checkNow)) y = drawSettingRow(g, st2, x + 10, y, w - 20);
         return y + 18;
     }
 

@@ -1,6 +1,6 @@
 <p align="center"><img src="logo.png" width="128" alt="Magma Client logo"></p>
 
-# Magma Client v1.4.3
+# Magma Client v1.4.4
 
 A client-side utility mod for **Minecraft 1.21.1 (NeoForge 21.1.259+)**: an auto miner that never digs into lava, safe Goto, a structure finder, X-Ray and more, with a clean menu on **Right Shift**.
 
@@ -17,7 +17,7 @@ $jar = Get-ChildItem "$env:USERPROFILE\Downloads\magmaclient-*.jar" | Sort-Objec
 Or drag the jar into your modpack's `mods` folder (CurseForge → right-click the modpack → **Open Folder**).
 
 ## Updating
-Magma updates itself from this repo's Releases. When a new version is out, a banner on the menu's **Home** page has an **Update** button. With **Auto Update** on (the default), it downloads by itself. Either way it installs when you **restart Minecraft**. Settings → Updates has **Check now**.
+Magma updates itself from this repo's Releases. When a new version is out, a banner on the menu's **Home** page has an **Update & restart** button (it saves, closes Minecraft and swaps the jar; then press Play). With **Auto Update** on (the default), it downloads by itself. Either way it installs when you **restart Minecraft**. Settings → Updates has **Check now**.
 
 ## The menu (Right Shift)
 - **Home**: quick actions (**Start mining**, **Go to coordinates**, **Find a structure**), the cheats that are on right now, and live status.

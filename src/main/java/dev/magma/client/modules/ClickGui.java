@@ -16,6 +16,9 @@ public class ClickGui extends Module {
     public final BoolSetting advancedSettings = add(new BoolSetting("Advanced Settings", "Show every fine-tuning option. Off = only the key settings (simpler).", false));
     public final BoolSetting checkUpdates = add(new BoolSetting("Check For Updates", "Look for a new Magma version on GitHub when the game starts.", true));
     public final BoolSetting autoUpdate = add(new BoolSetting("Auto Update", "Download new versions automatically; they install when you restart Minecraft.", true));
+    public final dev.magma.client.setting.ButtonSetting installNow = add(new dev.magma.client.setting.ButtonSetting("Install Update",
+            "Download the newest version, save and close Minecraft, and swap the old Magma jar for the new one. Then press Play again.",
+            "Update & restart", dev.magma.client.util.Updater::installAndRestart));
     public final dev.magma.client.setting.ButtonSetting checkNow = add(new dev.magma.client.setting.ButtonSetting("Updates", "Check GitHub for a new version right now.", "Check now",
             () -> dev.magma.client.util.Updater.checkAsync(false)));
     public final BoolSetting descriptions = add(new BoolSetting("Descriptions", "Show a tooltip for the hovered module/setting.", true));

@@ -36,6 +36,49 @@ public final class Updater {
     private static volatile String assetUrl, assetName;
     private static volatile float progress;
     private static volatile String message = "";
+    /** Set by "Update & restart": close the game as soon as the download is done. */
+    private static volatile boolean quitWhenReady;
+
+    public static boolean quitting() { return quitWhenReady; }
+
+    /**
+     * One click: download (if needed), then save + leave the world and close Minecraft. The helper armed at
+     * download time deletes the old jar and moves the new one in the moment the game has closed.
+     */
+    public static void installAndRestart() {
+        if (!canInstall()) {
+            message = "This is a dev build - get the new jar from GitHub";
+            return;
+        }
+        if (state == State.READY) {
+            quitNow();
+        } else if (state == State.AVAILABLE) {
+            quitWhenReady = true;
+            downloadAsync();
+        } else if (state == State.ERROR || state == State.UP_TO_DATE || state == State.IDLE) {
+            quitWhenReady = true;
+            checkAsync(true); // re-check, download, then close
+        }
+    }
+
+    /** Save and leave the world the normal way (like "Save and Quit to Title"), then quit the game. */
+    private static void quitNow() {
+        var mc = net.minecraft.client.Minecraft.getInstance();
+        mc.execute(() -> {
+            try {
+                if (mc.level != null) {
+                    boolean local = mc.isLocalServer();
+                    mc.level.disconnect();
+                    if (local) mc.disconnect(new net.minecraft.client.gui.screens.GenericMessageScreen(
+                            net.minecraft.network.chat.Component.translatable("menu.savingLevel")));
+                    else mc.disconnect();
+                }
+            } catch (Throwable t) {
+                MagmaClient.LOGGER.warn("[Magma] Couldn't leave the world cleanly before updating: {}", t.toString());
+            }
+            mc.stop();
+        });
+    }
 
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NORMAL)
@@ -90,6 +133,7 @@ public final class Updater {
                         .timeout(Duration.ofSeconds(15)).GET().build();
                 HttpResponse<String> res = HTTP.send(req, HttpResponse.BodyHandlers.ofString());
                 if (res.statusCode() == 404) {
+                    quitWhenReady = false;
                     state = State.UP_TO_DATE;
                     message = "No releases published yet";
                     return;
@@ -109,6 +153,7 @@ public final class Updater {
                 }
                 latest = tag;
                 if (!newer(tag, MagmaClient.VERSION)) {
+                    quitWhenReady = false; // nothing to install: never close the game later by surprise
                     state = State.UP_TO_DATE;
                     message = "You're on the latest version (" + MagmaClient.VERSION + ")";
                     return;
@@ -125,6 +170,7 @@ public final class Updater {
                 MagmaClient.LOGGER.info("[Magma] Update available: {} -> {}", MagmaClient.VERSION, tag);
                 if (autoDownload && canInstall()) downloadAsync();
             } catch (Exception e) {
+                quitWhenReady = false;
                 state = State.ERROR;
                 message = "Update check failed (offline?)";
                 MagmaClient.LOGGER.warn("[Magma] Update check failed: {}", e.toString());
@@ -170,9 +216,11 @@ public final class Updater {
                 armSwap(fresh);
                 progress = 1;
                 state = State.READY;
-                message = "Update " + latest + " ready - restart Minecraft to finish";
+                message = "Update " + latest + " ready - click Restart now";
                 MagmaClient.LOGGER.info("[Magma] Update {} downloaded; it will be installed when the game closes", latest);
+                if (quitWhenReady) quitNow();
             } catch (Exception e) {
+                quitWhenReady = false;
                 state = State.ERROR;
                 message = "Download failed - try again";
                 MagmaClient.LOGGER.warn("[Magma] Update download failed: {}", e.toString());

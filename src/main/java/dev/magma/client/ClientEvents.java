@@ -121,7 +121,7 @@ public class ClientEvents {
             dev.magma.client.util.Chat.info("Magma " + dev.magma.client.util.Updater.latest() + " is available - open the menu (Right Shift) and click Update.");
             dev.magma.client.util.Notify.show("Magma update available", dev.magma.client.util.Theme.accent());
         } else if (st == dev.magma.client.util.Updater.State.READY) {
-            dev.magma.client.util.Chat.info("Magma " + dev.magma.client.util.Updater.latest() + " downloaded - restart Minecraft to finish updating.");
+            dev.magma.client.util.Chat.info("Magma " + dev.magma.client.util.Updater.latest() + " downloaded - press Right Shift, then Restart now (or just restart Minecraft).");
             dev.magma.client.util.Notify.show("Update ready - restart to finish", dev.magma.client.util.Theme.OK);
         }
         announcedUpdate = st;
