@@ -129,7 +129,13 @@ public class AutoMiner extends Module {
     private long totalMined;
     private long sessionStart;
     private int humanDelay;
-    private int recenter, stuckRounds, stepJumps, stepPause;
+    private int recenter, stuckRounds, stepJumps, stepPause, sprintScore;
+
+    private void stopSprint() {
+        sprintScore = 0;
+        mc.options.keySprint.setDown(false);
+        if (mc.player != null && mc.player.isSprinting()) mc.player.setSprinting(false);
+    }
     private BlockPos aimFor;
     private Vec3 aimCache = Vec3.ZERO;
     /** Ores we failed to hit from a distance: next attempt walks right up to them. */
@@ -471,8 +477,8 @@ public class AutoMiner extends Module {
         // standing on magma/campfire? sneaking stops magma damage; the route never chooses these floors
         if (mc.player.onGround() && SafeWalk.hurtFloor(mc.player.getOnPos())) mc.options.keyShift.setDown(true);
         if (mc.screen != null && mc.screen.isPauseScreen()) { PlayerControl.releaseMovement(); return; }
-        mc.player.setSprinting(false);
-        mc.options.keySprint.setDown(false); // only the walking code turns running back on, on safe long stretches
+        // only the route-walking code may run; any other activity (mining, fighting, eating...) walks
+        if (state != State.FOLLOW) stopSprint();
 
         // you pressed a movement key yourself: hand control back for a moment
         if (pauseOnInput.get() && mc.screen == null && userMoving()) inputPauseUntil = System.currentTimeMillis() + 3000;
@@ -1612,11 +1618,17 @@ public class AutoMiner extends Module {
         }
         walkTo(aimNode, stepUp);
         // run on long, open, safe stretches (Goto, or Fast mode)
-        boolean longRun = path.indexOf(aimNode) - idx >= 3;
-        boolean sprint = longRun && (gotoTarget != null || fast()) && !bridging && !mc.player.isInWater()
-                && mc.player.getFoodData().getFoodLevel() > 6 && mc.options.keyUp.isDown();
-        mc.options.keySprint.setDown(sprint);
-        if (sprint) mc.player.setSprinting(true);
+        // running with hysteresis: start after the way ahead looked clear for a few ticks, stop only for a real reason
+        // (before it flipped run/walk every tick, which looked like a seizure)
+        boolean wantRun = (gotoTarget != null || fast()) && path.indexOf(aimNode) - idx >= 3;
+        boolean mustWalk = bridging || stepUp || mc.player.isInWater() || mc.player.getFoodData().getFoodLevel() <= 6
+                || path.size() - 1 - idx < 3 || !mc.options.keyUp.isDown();
+        if (mustWalk) sprintScore = 0;
+        else if (wantRun) sprintScore = Math.min(sprintScore + 1, 12);
+        else sprintScore = Math.max(sprintScore - 1, 0);
+        boolean running = !mustWalk && (mc.player.isSprinting() ? sprintScore > 0 : sprintScore >= 4);
+        mc.options.keySprint.setDown(running);
+        mc.player.setSprinting(running);
         if (bridging || (idx > 0 && !pf.solidFloor(cur.below()))) mc.options.keyShift.setDown(true);
     }
 
