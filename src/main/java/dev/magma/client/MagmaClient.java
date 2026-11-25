@@ -15,12 +15,13 @@ import org.slf4j.Logger;
 public class MagmaClient {
     public static final String MODID = "magmaclient";
     public static final String NAME = "Magma";
-    public static final String VERSION = "1.4.4";
+    public static final String VERSION = "1.4.5";
     public static final Logger LOGGER = LogUtils.getLogger();
 
     public MagmaClient(IEventBus modBus, ModContainer container) {
         modBus.addListener(this::onClientSetup);
         NeoForge.EVENT_BUS.register(new ClientEvents());
+        NeoForge.EVENT_BUS.register(new dev.magma.client.gui.TitleUpdateCard());
     }
 
     private void onClientSetup(FMLClientSetupEvent event) {

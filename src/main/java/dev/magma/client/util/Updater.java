@@ -36,6 +36,28 @@ public final class Updater {
     private static volatile String assetUrl, assetName;
     private static volatile float progress;
     private static volatile String message = "";
+    private static volatile String notes = "";
+    private static volatile long checkedAt, downloaded, total;
+    private static volatile boolean dismissed;
+
+    /** First line or two of the release notes ("what's new"). */
+    public static String notes() { return notes; }
+    public static long checkedAt() { return checkedAt; }
+    public static long downloaded() { return downloaded; }
+    public static long total() { return total; }
+    /** "Later" on the banner hides it for this session (Settings still shows it). */
+    public static boolean dismissed() { return dismissed; }
+    public static void dismiss() { dismissed = true; }
+
+    /**
+     * The version we compare against GitHub. The dev/test copy can pretend to be older
+     * (gradlew runClient -PmagmaFakeVersion=1.4.3) to preview the update screens.
+     */
+    public static String installed() {
+        String fake = System.getProperty("magma.fakeVersion", "");
+        return !FMLEnvironment.production && !fake.isBlank() ? fake : MagmaClient.VERSION;
+    }
+
     /** Set by "Update & restart": close the game as soon as the download is done. */
     private static volatile boolean quitWhenReady;
 
@@ -47,7 +69,8 @@ public final class Updater {
      */
     public static void installAndRestart() {
         if (!canInstall()) {
-            message = "This is a dev build - get the new jar from GitHub";
+            message = "Test copy - this button works in your real modpack";
+            Notify.show("Test copy can't update itself - works in the real modpack", Theme.WARN);
             return;
         }
         if (state == State.READY) {
@@ -106,6 +129,19 @@ public final class Updater {
         }
     }
 
+    /** Release notes -> one short line: first bullet points, markdown stripped. */
+    private static String summarize(String body) {
+        StringBuilder sb = new StringBuilder();
+        for (String line : body.split("\r?\n")) {
+            String t = line.replaceAll("[*_`#>]", "").replaceFirst("^\s*[-•]\s*", "").trim();
+            if (t.isEmpty() || t.toLowerCase(Locale.ROOT).startsWith("needs minecraft")) continue;
+            if (sb.length() > 0) sb.append(" · ");
+            sb.append(t);
+            if (sb.length() > 90) break;
+        }
+        return sb.toString();
+    }
+
     /** a > b ? (versions like 1.2.10 vs 1.2.9) */
     static boolean newer(String a, String b) {
         String[] x = a.split("[.\\-+]"), y = b.split("[.\\-+]");
@@ -152,10 +188,12 @@ public final class Updater {
                     if (n.toLowerCase(Locale.ROOT).startsWith("magmaclient")) break;
                 }
                 latest = tag;
-                if (!newer(tag, MagmaClient.VERSION)) {
+                checkedAt = System.currentTimeMillis();
+                notes = summarize(o.has("body") && !o.get("body").isJsonNull() ? o.get("body").getAsString() : "");
+                if (!newer(tag, installed())) {
                     quitWhenReady = false; // nothing to install: never close the game later by surprise
                     state = State.UP_TO_DATE;
-                    message = "You're on the latest version (" + MagmaClient.VERSION + ")";
+                    message = "You're up to date";
                     return;
                 }
                 if (url == null || !url.startsWith("https://github.com/")) {
@@ -167,7 +205,8 @@ public final class Updater {
                 assetName = name;
                 state = State.AVAILABLE;
                 message = "Version " + tag + " is available";
-                MagmaClient.LOGGER.info("[Magma] Update available: {} -> {}", MagmaClient.VERSION, tag);
+                dismissed = false;
+                MagmaClient.LOGGER.info("[Magma] Update available: {} -> {}", installed(), tag);
                 if (autoDownload && canInstall()) downloadAsync();
             } catch (Exception e) {
                 quitWhenReady = false;
@@ -201,6 +240,8 @@ public final class Updater {
                 HttpResponse<InputStream> res = HTTP.send(req, HttpResponse.BodyHandlers.ofInputStream());
                 if (res.statusCode() != 200) throw new IllegalStateException("download answered " + res.statusCode());
                 long total = res.headers().firstValueAsLong("Content-Length").orElse(-1);
+                Updater.total = Math.max(0, total);
+                Updater.downloaded = 0;
                 try (InputStream in = res.body(); var out = Files.newOutputStream(part)) {
                     byte[] buf = new byte[16384];
                     long done = 0;
@@ -208,6 +249,7 @@ public final class Updater {
                     while ((n = in.read(buf)) > 0) {
                         out.write(buf, 0, n);
                         done += n;
+                        Updater.downloaded = done;
                         if (total > 0) progress = (float) done / total;
                     }
                 }

@@ -494,38 +494,70 @@ public class MenuScreen extends Screen {
 
     /** Shown at the top of Home when GitHub has a newer version. One click updates. */
     private float drawUpdateBanner(GuiGraphics g, float x, float y, float w) {
+        var U = dev.magma.client.util.Updater.class;
         var st = dev.magma.client.util.Updater.state();
-        boolean show = st == dev.magma.client.util.Updater.State.AVAILABLE || st == dev.magma.client.util.Updater.State.DOWNLOADING
-                || st == dev.magma.client.util.Updater.State.READY;
+        boolean show = (st == dev.magma.client.util.Updater.State.AVAILABLE || st == dev.magma.client.util.Updater.State.DOWNLOADING
+                || st == dev.magma.client.util.Updater.State.READY) && !dev.magma.client.util.Updater.dismissed();
         if (!show) return y;
-        Render2D.roundedRect(g, x, y, w, 28, ROW_R, a(ColorUtil.withAlpha(Theme.accent(), 40)));
-        Render2D.roundedOutline(g, x, y, w, 28, ROW_R, 1, a(ColorUtil.withAlpha(Theme.accent(), 160)));
-        dev.magma.client.util.Logo.draw(g, x + 7, y + 6, 16, alpha);
-        String title = st == dev.magma.client.util.Updater.State.READY ? "Update ready" : "Magma " + dev.magma.client.util.Updater.latest() + " is out";
-        text(g, title, x + 28, y + 5, Theme.TEXT);
-        text(g, clip(dev.magma.client.util.Updater.message(), (int) w - 130), x + 28, y + 16, 0xFF8B92A1);
-        boolean quitting = dev.magma.client.util.Updater.quitting();
-        if (st == dev.magma.client.util.Updater.State.DOWNLOADING) {
-            float bw = 90, bx = x + w - bw - 7;
-            Render2D.roundedRect(g, bx, y + 8, bw, 4, 2, a(0xFF2A2E38));
-            Render2D.roundedRect(g, bx, y + 8, Math.max(4, bw * dev.magma.client.util.Updater.progress()), 4, 2, a(Theme.accent()));
-            text(g, quitting ? "closing when done" : "downloading", bx, y + 15, 0xFF8B92A1);
+        float h = 44;
+        boolean ready = st == dev.magma.client.util.Updater.State.READY;
+        boolean downloading = st == dev.magma.client.util.Updater.State.DOWNLOADING;
+        int accent = ready ? Theme.OK : Theme.accent();
+
+        // card
+        Render2D.roundedRect(g, x, y, w, h, ROW_R + 1, a(SURFACE));
+        Render2D.roundedGradient(g, x, y, w * 0.55f, h, ROW_R + 1, a(ColorUtil.withAlpha(accent, 46)), 0x00000000, false);
+        Render2D.roundedOutline(g, x, y, w, h, ROW_R + 1, 1, a(ColorUtil.withAlpha(accent, 120)));
+        dev.magma.client.util.Logo.draw(g, x + 9, y + 10, 24, alpha);
+
+        // text
+        float tx = x + 42;
+        String title = ready ? "Update ready to install" : downloading ? "Downloading update" : "Update available";
+        text(g, title, tx, y + 9, Theme.TEXT);
+        String ver = "v" + dev.magma.client.util.Updater.installed() + " \u2192 v" + dev.magma.client.util.Updater.latest();
+        float vx = tx + font.width(title) + 7;
+        Render2D.roundedRect(g, vx - 3, y + 7, font.width(ver) + 6, 12, 4, a(ColorUtil.withAlpha(accent, 50)));
+        text(g, ver, vx, y + 9, accent);
+
+        float btnArea = 150;
+        float lineW = w - (tx - x) - btnArea - 8;
+        if (downloading) {
+            float p = dev.magma.client.util.Updater.progress();
+            Render2D.roundedRect(g, tx, y + 26, lineW, 4, 2, a(0xFF2A2E38));
+            Render2D.roundedRect(g, tx, y + 26, Math.max(4, lineW * p), 4, 2, a(accent));
+            long t = dev.magma.client.util.Updater.total(), d = dev.magma.client.util.Updater.downloaded();
+            String info = Math.round(p * 100) + "%" + (t > 0 ? String.format("  \u00B7  %.1f / %.1f MB", d / 1048576.0, t / 1048576.0) : "");
+            text(g, info, tx, y + 33, 0xFF6B7282);
         } else {
-            if (!dev.magma.client.util.Updater.canInstall()) {
-                // the dev/test copy runs from source and can't replace its own jar
-                text(g, "Test copy: install from GitHub", x + w - 7 - font.width("Test copy: install from GitHub"), y + 10, 0xFF8B92A1);
-                return y + 36;
-            }
-            String label = st == dev.magma.client.util.Updater.State.READY ? "Restart now" : "Update & restart";
-            Object key = "update";
-            float hv = anim(key, hov(key) ? 1 : 0, 16);
-            float bw = font.width(label) + 16, bx = x + w - bw - 7;
-            Render2D.roundedRect(g, bx, y + 7, bw, 14, 4, a(ColorUtil.lerp(Theme.accent(), Theme.accent2(), hv)));
-            text(g, label, bx + bw / 2f - font.width(label) / 2f, y + 10, 0xFF120A06);
-            chit(bx, y + 7, bw, 14, key, b -> dev.magma.client.util.Updater.installAndRestart(),
-                    "Saves and closes Minecraft, swaps in the new Magma jar (old one removed). Then press Play again.");
+            String sub = ready ? "Restart to finish - your world is saved first, takes a few seconds"
+                    : dev.magma.client.util.Updater.notes().isEmpty() ? "A new version of Magma is out" : dev.magma.client.util.Updater.notes();
+            text(g, clip(sub, (int) lineW), tx, y + 25, 0xFF8B92A1);
         }
-        return y + 36;
+
+        // buttons
+        float bx = x + w - 10;
+        if (downloading) {
+            String t = dev.magma.client.util.Updater.quitting() ? "Closes when done" : "Downloading\u2026";
+            text(g, t, bx - font.width(t), y + 18, 0xFF8B92A1);
+        } else {
+            String primary = ready ? "Restart now" : "Update & restart";
+            Object pk = "upd:primary";
+            float ph = anim(pk, hov(pk) ? 1 : 0, 16);
+            float pw = font.width(primary) + 18;
+            float px = bx - pw;
+            Render2D.roundedRect(g, px, y + 14, pw, 16, 5, a(ColorUtil.lerp(accent, ColorUtil.lerp(accent, 0xFFFFFFFF, 0.25f), ph)));
+            text(g, primary, px + pw / 2f - font.width(primary) / 2f, y + 18, 0xFF120A06);
+            chit(px, y + 14, pw, 16, pk, b -> dev.magma.client.util.Updater.installAndRestart(),
+                    "Saves your world, closes Minecraft and swaps in the new Magma (the old one is removed). Then press Play again.");
+            Object lk = "upd:later";
+            float lh = anim(lk, hov(lk) ? 1 : 0, 16);
+            String later = "Later";
+            float lx = px - font.width(later) - 12;
+            text(g, later, lx, y + 18, ColorUtil.lerp(0xFF6B7282, Theme.TEXT, lh));
+            chit(lx - 4, y + 14, font.width(later) + 8, 16, lk, b -> dev.magma.client.util.Updater.dismiss(),
+                    "Hide this for now (it still installs when you close Minecraft if it's downloaded)");
+        }
+        return y + h + 8;
     }
 
     private int pageOf(Module m) {
@@ -921,14 +953,64 @@ public class MenuScreen extends Screen {
 
         y = section(g, "Updates", x, y, w);
         var st = dev.magma.client.util.Updater.state();
-        Render2D.roundedRect(g, x, y, w, 8 + 16 + groupRows(List.of(c.checkUpdates, c.autoUpdate, c.installNow, c.checkNow)), ROW_R, a(SURFACE));
-        text(g, "Version " + MagmaClient.VERSION, x + 10, y + 8, Theme.TEXT);
-        String msg = dev.magma.client.util.Updater.message();
-        if (!msg.isEmpty()) text(g, clip(msg, (int) w - 110), x + 100, y + 8,
-                st == dev.magma.client.util.Updater.State.AVAILABLE || st == dev.magma.client.util.Updater.State.READY ? Theme.accent() : 0xFF5C6373);
-        y += 20;
-        for (Setting<?> st2 : List.of(c.checkUpdates, c.autoUpdate, c.installNow, c.checkNow)) y = drawSettingRow(g, st2, x + 10, y, w - 20);
-        return y + 18;
+        boolean avail = st == dev.magma.client.util.Updater.State.AVAILABLE || st == dev.magma.client.util.Updater.State.READY
+                || st == dev.magma.client.util.Updater.State.DOWNLOADING;
+        float boxH = 8 + 20 + (avail ? 14 : 0) + 22 + groupRows(List.of(c.checkUpdates, c.autoUpdate));
+        Render2D.roundedRect(g, x, y, w, boxH, ROW_R, a(SURFACE));
+        float yy = y + 6;
+        // status line: coloured dot + what's going on, "checked x ago" on the right
+        int dot = switch (st) {
+            case UP_TO_DATE -> Theme.OK;
+            case AVAILABLE, DOWNLOADING -> Theme.accent();
+            case READY -> Theme.OK;
+            case ERROR -> Theme.DANGER;
+            default -> 0xFF5C6373;
+        };
+        String line = switch (st) {
+            case UP_TO_DATE -> "Up to date \u00B7 v" + dev.magma.client.util.Updater.installed();
+            case AVAILABLE -> "v" + dev.magma.client.util.Updater.latest() + " available (you have v" + dev.magma.client.util.Updater.installed() + ")";
+            case DOWNLOADING -> "Downloading v" + dev.magma.client.util.Updater.latest() + " \u00B7 " + Math.round(dev.magma.client.util.Updater.progress() * 100) + "%";
+            case READY -> "v" + dev.magma.client.util.Updater.latest() + " ready \u00B7 restart to finish";
+            case CHECKING -> "Checking GitHub\u2026";
+            case ERROR -> dev.magma.client.util.Updater.message();
+            default -> "v" + dev.magma.client.util.Updater.installed();
+        };
+        Render2D.circle(g, x + 13, yy + 7, 2.5f, a(dot));
+        text(g, clip(line, (int) w - 120), x + 21, yy + 3, Theme.TEXT);
+        long at = dev.magma.client.util.Updater.checkedAt();
+        if (at > 0) {
+            long secs = (System.currentTimeMillis() - at) / 1000;
+            String ago = secs < 60 ? "checked just now" : secs < 3600 ? "checked " + secs / 60 + " min ago" : "checked " + secs / 3600 + " h ago";
+            text(g, ago, x + w - 10 - font.width(ago), yy + 3, 0xFF5C6373);
+        }
+        yy += 20;
+        if (avail) {
+            String notes = dev.magma.client.util.Updater.notes();
+            text(g, clip(notes.isEmpty() ? "New version on GitHub" : "What's new: " + notes, (int) w - 30), x + 21, yy, 0xFF8B92A1);
+            yy += 14;
+        }
+        // buttons
+        float bx = x + 10;
+        if (avail && st != dev.magma.client.util.Updater.State.DOWNLOADING) {
+            String pl = st == dev.magma.client.util.Updater.State.READY ? "Restart now" : "Update & restart";
+            Object pk = "set:upd";
+            float ph = anim(pk, hov(pk) ? 1 : 0, 16);
+            float pw = font.width(pl) + 16;
+            Render2D.roundedRect(g, bx, yy, pw, 15, 4, a(ColorUtil.lerp(Theme.accent(), Theme.accent2(), ph)));
+            text(g, pl, bx + pw / 2f - font.width(pl) / 2f, yy + 4, 0xFF120A06);
+            chit(bx, yy, pw, 15, pk, b -> dev.magma.client.util.Updater.installAndRestart(), "Saves, closes Minecraft and swaps in the new version");
+            bx += pw + 6;
+        }
+        Object ck = "set:check";
+        float chh = anim(ck, hov(ck) ? 1 : 0, 16);
+        String cl = st == dev.magma.client.util.Updater.State.CHECKING ? "Checking\u2026" : "Check now";
+        float cw = font.width(cl) + 16;
+        Render2D.roundedRect(g, bx, yy, cw, 15, 4, a(ColorUtil.lerp(CHIP, 0xFF2C303C, chh)));
+        text(g, cl, bx + cw / 2f - font.width(cl) / 2f, yy + 4, Theme.TEXT);
+        chit(bx, yy, cw, 15, ck, b -> dev.magma.client.util.Updater.checkAsync(false), "Look for a new version on GitHub now");
+        yy += 22;
+        for (Setting<?> st2 : List.of(c.checkUpdates, c.autoUpdate)) yy = drawSettingRow(g, st2, x + 10, yy, w - 20);
+        return y + boxH + 18;
     }
 
     private float groupRows(List<Setting<?>> list) {
