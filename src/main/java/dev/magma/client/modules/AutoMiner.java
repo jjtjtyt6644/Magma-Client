@@ -129,7 +129,7 @@ public class AutoMiner extends Module {
     private long totalMined;
     private long sessionStart;
     private int humanDelay;
-    private int recenter, stuckRounds, stepJumps, stepPause, sprintScore;
+    private int recenter, stuckRounds, stepJumps, stepPause, sprintScore, serverWait;
 
     private void stopSprint() {
         sprintScore = 0;
@@ -285,6 +285,7 @@ public class AutoMiner extends Module {
     public boolean engineRunning() { return isEnabled() || gotoTarget != null; }
 
     private void stopEngine() {
+        unsafeOres.clear(); // nothing left on screen once it stops
         stopEating();
         PlayerControl.releaseMovement();
         status = "Idle";
@@ -1548,11 +1549,16 @@ public class AutoMiner extends Module {
 
         // the blocks we just dug aren't confirmed by the server yet (lag): don't walk/jump into them, or it
         // keeps jumping into a block that pops back. Wait a moment instead.
-        for (BlockPos c : cellsToClear(cur, nx)) {
-            if (PlayerControl.unconfirmed(c)) {
+        // Only matters when going UP (jumping/pillaring into a dug block that could pop back on lag).
+        // Flat steps never wait, and even upward steps wait at most ~1 s, so normal ping doesn't cause pauses.
+        if (nx.getY() > cur.getY() && serverWait < 20) {
+            boolean pending = false;
+            for (BlockPos c : cellsToClear(cur, nx)) if (PlayerControl.unconfirmed(c)) { pending = true; break; }
+            if (pending) {
+                serverWait++;
                 mc.options.keyUp.setDown(false);
                 mc.options.keyJump.setDown(false);
-                status = "Waiting for server...";
+                if (serverWait > 4) status = "Waiting for server...";
                 lastIdx = idx;
                 walkStuck = 0;
                 return;
@@ -1585,7 +1591,7 @@ public class AutoMiner extends Module {
             return;
         }
         Vec3 pos = mc.player.position();
-        if (idx != lastIdx) { lastIdx = idx; walkStuck = 0; stuckRounds = 0; recenter = 0; stepJumps = 0; stepPause = 0; }
+        if (idx != lastIdx) { lastIdx = idx; walkStuck = 0; stuckRounds = 0; recenter = 0; stepJumps = 0; stepPause = 0; serverWait = 0; }
         else if (pos.distanceToSqr(lastPos) < 0.0009) walkStuck++;
         lastPos = pos;
         if (walkStuck > 30) {

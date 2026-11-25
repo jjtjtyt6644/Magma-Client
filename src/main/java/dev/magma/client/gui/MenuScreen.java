@@ -270,8 +270,8 @@ public class MenuScreen extends Screen {
         float fy = y + h - 22;
         Object pk = "panels";
         float hv = anim(pk, hov(pk) ? 1 : 0, 16);
-        text(g, "▦ Panels view", x + 12, fy + 4, ColorUtil.lerp(0xFF5C6373, Theme.TEXT, hv));
-        hit(x + 6, fy, SIDEBAR - 12, 16, pk, b -> {
+        text(g, "▦ Panels", x + 12, fy + 4, ColorUtil.lerp(0xFF5C6373, Theme.TEXT, hv));
+        hit(x + 6, fy, font.width("▦ Panels") + 12, 16, pk, b -> {
             cfg().style.set("Panels");
             ConfigManager.save();
             minecraft.setScreen(new ClickGuiScreen());
@@ -399,12 +399,10 @@ public class MenuScreen extends Screen {
             if (i == 2) {
                 Object rk = "resetTotal";
                 float rh = anim(rk, hov(rk) ? 1 : 0, 16);
-                String rl = "Reset";
-                float rw = font.width(rl) + 8;
-                float rx = sx + sw - rw - 6;
-                Render2D.roundedRect(g, rx, y + 9, rw, 12, 3, a(ColorUtil.lerp(CHIP, 0xFF2C303C, rh)));
-                text(g, rl, rx + 4, y + 11, ColorUtil.lerp(0xFF8B92A1, Theme.TEXT, rh));
-                chit(rx, y + 9, rw, 12, rk, b -> qm.resetTotal(), "Reset the all-time ore counter");
+                String rl = "reset";
+                float rx = sx + sw - 9 - font.width(rl);
+                text(g, rl, rx, y + 17, ColorUtil.lerp(0xFF4A505D, Theme.accent(), rh));
+                chit(rx - 4, y + 14, font.width(rl) + 8, 14, rk, b -> qm.resetTotal(), "Reset the all-time ore counter");
             }
         }
         y += 38;
@@ -462,9 +460,9 @@ public class MenuScreen extends Screen {
         y = section(g, "Quick actions", x, y, w);
         AutoMiner am = ModuleManager.get(AutoMiner.class);
         String[][] acts = {
-                {am.isEnabled() ? "\u25A0 Stop mining" : "\u26CF Start mining", am.isEnabled() ? am.getStatus() : "Mine your ore list automatically"},
-                {"\u279C Go to coordinates", "Walk anywhere safely"},
-                {"\u2316 Find a structure", "Fortress, bastion, village..."},
+                {am.isEnabled() ? "\u25A0 Stop mining" : "\u26CF Start mining", am.isEnabled() ? am.getStatus() : "Your ore list"},
+                {"\u279C Go to XYZ", "Safe auto-walk"},
+                {"\u2316 Find structure", "Fortress, village\u2026"},
         };
         float bw = (w - 12) / 3f;
         for (int i = 0; i < 3; i++) {
@@ -499,7 +497,7 @@ public class MenuScreen extends Screen {
         boolean show = (st == dev.magma.client.util.Updater.State.AVAILABLE || st == dev.magma.client.util.Updater.State.DOWNLOADING
                 || st == dev.magma.client.util.Updater.State.READY) && !dev.magma.client.util.Updater.dismissed();
         if (!show) return y;
-        float h = 44;
+        float h = 46;
         boolean ready = st == dev.magma.client.util.Updater.State.READY;
         boolean downloading = st == dev.magma.client.util.Updater.State.DOWNLOADING;
         int accent = ready ? Theme.OK : Theme.accent();
@@ -508,54 +506,52 @@ public class MenuScreen extends Screen {
         Render2D.roundedRect(g, x, y, w, h, ROW_R + 1, a(SURFACE));
         Render2D.roundedGradient(g, x, y, w * 0.55f, h, ROW_R + 1, a(ColorUtil.withAlpha(accent, 46)), 0x00000000, false);
         Render2D.roundedOutline(g, x, y, w, h, ROW_R + 1, 1, a(ColorUtil.withAlpha(accent, 120)));
-        dev.magma.client.util.Logo.draw(g, x + 9, y + 10, 24, alpha);
+        dev.magma.client.util.Logo.draw(g, x + 10, y + 11, 24, alpha);
 
-        // text
+        // layout: [logo] [title / version / what's new or progress] ......... [primary button / Later]
+        String primary = ready ? "Restart now" : "Update & restart";
+        float pw = font.width(primary) + 18;
+        float btnArea = pw + 14;
         float tx = x + 42;
-        String title = ready ? "Update ready to install" : downloading ? "Downloading update" : "Update available";
-        text(g, title, tx, y + 9, Theme.TEXT);
-        String ver = "v" + dev.magma.client.util.Updater.installed() + " \u2192 v" + dev.magma.client.util.Updater.latest();
-        float vx = tx + font.width(title) + 7;
-        Render2D.roundedRect(g, vx - 3, y + 7, font.width(ver) + 6, 12, 4, a(ColorUtil.withAlpha(accent, 50)));
-        text(g, ver, vx, y + 9, accent);
+        float textW = w - (tx - x) - btnArea - 6;
 
-        float btnArea = 150;
-        float lineW = w - (tx - x) - btnArea - 8;
+        String title = ready ? "Ready to install" : downloading ? "Downloading update" : "Update available";
+        text(g, clip(title, (int) textW), tx, y + 8, Theme.TEXT);
+        String ver = "v" + dev.magma.client.util.Updater.installed() + " \u2192 v" + dev.magma.client.util.Updater.latest();
+        text(g, clip(ver, (int) textW), tx, y + 20, accent);
+        float after = tx + font.width(ver) + 6;
         if (downloading) {
             float p = dev.magma.client.util.Updater.progress();
-            Render2D.roundedRect(g, tx, y + 26, lineW, 4, 2, a(0xFF2A2E38));
-            Render2D.roundedRect(g, tx, y + 26, Math.max(4, lineW * p), 4, 2, a(accent));
+            Render2D.roundedRect(g, tx, y + 34, textW, 3, 1.5f, a(0xFF2A2E38));
+            Render2D.roundedRect(g, tx, y + 34, Math.max(3, textW * p), 3, 1.5f, a(accent));
             long t = dev.magma.client.util.Updater.total(), d = dev.magma.client.util.Updater.downloaded();
-            String info = Math.round(p * 100) + "%" + (t > 0 ? String.format("  \u00B7  %.1f / %.1f MB", d / 1048576.0, t / 1048576.0) : "");
-            text(g, info, tx, y + 33, 0xFF6B7282);
+            String info = Math.round(p * 100) + "%" + (t > 0 ? String.format(" \u00B7 %.1f/%.1f MB", d / 1048576.0, t / 1048576.0) : "");
+            if (after + font.width(info) < tx + textW) text(g, info, after, y + 20, 0xFF6B7282);
         } else {
-            String sub = ready ? "Restart to finish - your world is saved first, takes a few seconds"
+            String sub = ready ? "Restarts in seconds, your world is saved first"
                     : dev.magma.client.util.Updater.notes().isEmpty() ? "A new version of Magma is out" : dev.magma.client.util.Updater.notes();
-            text(g, clip(sub, (int) lineW), tx, y + 25, 0xFF8B92A1);
+            text(g, clip(sub, (int) textW), tx, y + 32, 0xFF8B92A1);
         }
 
-        // buttons
         float bx = x + w - 10;
         if (downloading) {
             String t = dev.magma.client.util.Updater.quitting() ? "Closes when done" : "Downloading\u2026";
-            text(g, t, bx - font.width(t), y + 18, 0xFF8B92A1);
+            text(g, t, bx - font.width(t), y + 19, 0xFF8B92A1);
         } else {
-            String primary = ready ? "Restart now" : "Update & restart";
             Object pk = "upd:primary";
             float ph = anim(pk, hov(pk) ? 1 : 0, 16);
-            float pw = font.width(primary) + 18;
             float px = bx - pw;
-            Render2D.roundedRect(g, px, y + 14, pw, 16, 5, a(ColorUtil.lerp(accent, ColorUtil.lerp(accent, 0xFFFFFFFF, 0.25f), ph)));
-            text(g, primary, px + pw / 2f - font.width(primary) / 2f, y + 18, 0xFF120A06);
-            chit(px, y + 14, pw, 16, pk, b -> dev.magma.client.util.Updater.installAndRestart(),
+            Render2D.roundedRect(g, px, y + 7, pw, 16, 5, a(ColorUtil.lerp(accent, ColorUtil.lerp(accent, 0xFFFFFFFF, 0.25f), ph)));
+            text(g, primary, px + pw / 2f - font.width(primary) / 2f, y + 11, 0xFF120A06);
+            chit(px, y + 7, pw, 16, pk, b -> dev.magma.client.util.Updater.installAndRestart(),
                     "Saves your world, closes Minecraft and swaps in the new Magma (the old one is removed). Then press Play again.");
             Object lk = "upd:later";
             float lh = anim(lk, hov(lk) ? 1 : 0, 16);
             String later = "Later";
-            float lx = px - font.width(later) - 12;
-            text(g, later, lx, y + 18, ColorUtil.lerp(0xFF6B7282, Theme.TEXT, lh));
-            chit(lx - 4, y + 14, font.width(later) + 8, 16, lk, b -> dev.magma.client.util.Updater.dismiss(),
-                    "Hide this for now (it still installs when you close Minecraft if it's downloaded)");
+            float lx = px + pw / 2f - font.width(later) / 2f;
+            text(g, later, lx, y + 29, ColorUtil.lerp(0xFF6B7282, Theme.TEXT, lh));
+            chit(lx - 6, y + 26, font.width(later) + 12, 14, lk, b -> dev.magma.client.util.Updater.dismiss(),
+                    "Hide this for now (Settings > Updates still has it)");
         }
         return y + h + 8;
     }

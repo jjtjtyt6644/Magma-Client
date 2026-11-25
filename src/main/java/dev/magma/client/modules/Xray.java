@@ -272,39 +272,23 @@ public class Xray extends Module {
     }
 
     private void renderOreModels(RenderLevelStageEvent event, List<BlockPos> list, Vec3 cam, float wave) {
-        org.joml.Matrix4fStack mv = com.mojang.blaze3d.systems.RenderSystem.getModelViewStack();
-        mv.pushMatrix();
-        mv.identity();
-        mv.mul(event.getModelViewMatrix());
-        com.mojang.blaze3d.systems.RenderSystem.applyModelViewMatrix();
-        com.mojang.blaze3d.systems.RenderSystem.backupProjectionMatrix();
-        com.mojang.blaze3d.systems.RenderSystem.setProjectionMatrix(event.getProjectionMatrix(), com.mojang.blaze3d.vertex.VertexSorting.DISTANCE_TO_ORIGIN);
-        // wipe depth so ores show through terrain; they still sort correctly against each other
-        com.mojang.blaze3d.systems.RenderSystem.clear(org.lwjgl.opengl.GL11.GL_DEPTH_BUFFER_BIT, net.minecraft.client.Minecraft.ON_OSX);
-
-        var buffers = mc.renderBuffers().bufferSource();
         var dispatcher = mc.getBlockRenderer();
-        // every block goes into the translucent layer with reduced alpha, so mobs/players behind ores stay visible
         float opacity = blockOpacity.getFloat() / 100f;
-        net.minecraft.client.renderer.MultiBufferSource seeThrough = type ->
-                new dev.magma.client.util.AlphaVertexConsumer(buffers.getBuffer(net.minecraft.client.renderer.RenderType.translucent()), opacity);
-        com.mojang.blaze3d.vertex.PoseStack ps = new com.mojang.blaze3d.vertex.PoseStack();
         float scale = pulse.get() ? 1.0f + 0.03f * wave : 1.0f;
-        for (BlockPos p : list) {
-            BlockState s = mc.level.getBlockState(p);
-            ps.pushPose();
-            ps.translate(p.getX() - cam.x + 0.5, p.getY() - cam.y + 0.5, p.getZ() - cam.z + 0.5);
-            ps.scale(scale, scale, scale);
-            ps.translate(-0.5, -0.5, -0.5);
-            dispatcher.renderSingleBlock(s, ps, seeThrough, net.minecraft.client.renderer.LightTexture.FULL_BRIGHT,
-                    net.minecraft.client.renderer.texture.OverlayTexture.NO_OVERLAY,
-                    net.neoforged.neoforge.client.model.data.ModelData.EMPTY, net.minecraft.client.renderer.RenderType.translucent());
-            ps.popPose();
-        }
-        buffers.endBatch();
-
-        com.mojang.blaze3d.systems.RenderSystem.restoreProjectionMatrix();
-        mv.popMatrix();
-        com.mojang.blaze3d.systems.RenderSystem.applyModelViewMatrix();
+        // our own see-through block render type + buffer: no depth wiping, and Iris/Sodium can't hide or garble it
+        WorldRender.drawBlocks(event, opacity, source -> {
+            com.mojang.blaze3d.vertex.PoseStack ps = new com.mojang.blaze3d.vertex.PoseStack();
+            for (BlockPos p : list) {
+                BlockState s = mc.level.getBlockState(p);
+                ps.pushPose();
+                ps.translate(p.getX() - cam.x + 0.5, p.getY() - cam.y + 0.5, p.getZ() - cam.z + 0.5);
+                ps.scale(scale, scale, scale);
+                ps.translate(-0.5, -0.5, -0.5);
+                dispatcher.renderSingleBlock(s, ps, source, net.minecraft.client.renderer.LightTexture.FULL_BRIGHT,
+                        net.minecraft.client.renderer.texture.OverlayTexture.NO_OVERLAY,
+                        net.neoforged.neoforge.client.model.data.ModelData.EMPTY, WorldRender.ORE);
+                ps.popPose();
+            }
+        });
     }
 }

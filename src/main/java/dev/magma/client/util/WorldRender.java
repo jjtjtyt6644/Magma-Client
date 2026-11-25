@@ -49,11 +49,28 @@ public final class WorldRender {
                     .setWriteMaskState(RenderStateShard.COLOR_WRITE)
                     .createCompositeState(false));
 
-    /** Our own buffers (fills drawn first, then lines on top) - never shares state with the level's buffers. */
+    /**
+     * Real block textures drawn through walls (X-Ray ore blocks): ignores depth, so no depth-buffer wiping is needed,
+     * and it lives in our own buffer so shader mods (Iris) can't defer it behind the world.
+     */
+    public static final RenderType ORE = RenderType.create("magma_ore_see_through", DefaultVertexFormat.BLOCK,
+            VertexFormat.Mode.QUADS, 262144, false, true,
+            RenderType.CompositeState.builder()
+                    .setLightmapState(RenderStateShard.LIGHTMAP)
+                    .setShaderState(RenderStateShard.RENDERTYPE_TRANSLUCENT_SHADER)
+                    .setTextureState(RenderStateShard.BLOCK_SHEET_MIPPED)
+                    .setTransparencyState(RenderStateShard.TRANSLUCENT_TRANSPARENCY)
+                    .setCullState(RenderStateShard.CULL)
+                    .setDepthTestState(RenderStateShard.NO_DEPTH_TEST)
+                    .setWriteMaskState(RenderStateShard.COLOR_WRITE)
+                    .createCompositeState(true));
+
+    /** Our own buffers (ore blocks, then fills, then lines on top) - never shares state with the level's buffers. */
     private static final MultiBufferSource.BufferSource SOURCE;
 
     static {
         LinkedHashMap<RenderType, ByteBufferBuilder> fixed = new LinkedHashMap<>();
+        fixed.put(ORE, new ByteBufferBuilder(ORE.bufferSize()));
         fixed.put(FILL, new ByteBufferBuilder(FILL.bufferSize()));
         fixed.put(LINES, new ByteBufferBuilder(LINES.bufferSize()));
         SOURCE = MultiBufferSource.immediateWithBuffers(fixed, new ByteBufferBuilder(256));
@@ -114,6 +131,25 @@ public final class WorldRender {
             f.addVertex(pose, x2, y2, z2).setColor(c);
             f.addVertex(pose, x3, y3, z3).setColor(c);
             f.addVertex(pose, x4, y4, z4).setColor(c);
+        }
+    }
+
+    /** Draw real block models (X-Ray) through walls with the given opacity. {@code fn} gets a buffer source to render into. */
+    public static void drawBlocks(RenderLevelStageEvent event, float opacity, Consumer<MultiBufferSource> fn) {
+        Matrix4fStack mv = RenderSystem.getModelViewStack();
+        mv.pushMatrix();
+        mv.identity();
+        mv.mul(event.getModelViewMatrix());
+        RenderSystem.applyModelViewMatrix();
+        RenderSystem.backupProjectionMatrix();
+        RenderSystem.setProjectionMatrix(event.getProjectionMatrix(), VertexSorting.DISTANCE_TO_ORIGIN);
+        try {
+            fn.accept(type -> new AlphaVertexConsumer(SOURCE.getBuffer(ORE), opacity));
+        } finally {
+            SOURCE.endBatch();
+            RenderSystem.restoreProjectionMatrix();
+            mv.popMatrix();
+            RenderSystem.applyModelViewMatrix();
         }
     }
 

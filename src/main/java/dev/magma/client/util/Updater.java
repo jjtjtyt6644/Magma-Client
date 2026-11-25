@@ -53,6 +53,11 @@ public final class Updater {
      * The version we compare against GitHub. The dev/test copy can pretend to be older
      * (gradlew runClient -PmagmaFakeVersion=1.4.3) to preview the update screens.
      */
+    /** Test copy pretending to be older: run the whole update flow for real, except closing/swapping. */
+    public static boolean preview() {
+        return !FMLEnvironment.production && !System.getProperty("magma.fakeVersion", "").isBlank();
+    }
+
     public static String installed() {
         String fake = System.getProperty("magma.fakeVersion", "");
         return !FMLEnvironment.production && !fake.isBlank() ? fake : MagmaClient.VERSION;
@@ -68,7 +73,7 @@ public final class Updater {
      * download time deletes the old jar and moves the new one in the moment the game has closed.
      */
     public static void installAndRestart() {
-        if (!canInstall()) {
+        if (!canInstall() && !preview()) {
             message = "Test copy - this button works in your real modpack";
             Notify.show("Test copy can't update itself - works in the real modpack", Theme.WARN);
             return;
@@ -87,6 +92,12 @@ public final class Updater {
     /** Save and leave the world the normal way (like "Save and Quit to Title"), then quit the game. */
     private static void quitNow() {
         var mc = net.minecraft.client.Minecraft.getInstance();
+        if (preview()) {
+            quitWhenReady = false;
+            Notify.show("Test copy: here Minecraft would save, close and install v" + latest, Theme.OK);
+            message = "Preview done - in your modpack this restarts into v" + latest;
+            return;
+        }
         mc.execute(() -> {
             try {
                 if (mc.level != null) {
@@ -222,7 +233,7 @@ public final class Updater {
     /** Download the new jar and arm the swap that happens when Minecraft closes. */
     public static void downloadAsync() {
         if (state != State.AVAILABLE || assetUrl == null) return;
-        if (!canInstall()) {
+        if (!canInstall() && !preview()) {
             message = "Can't self-update here (dev build) - download it from GitHub";
             return;
         }
@@ -231,7 +242,9 @@ public final class Updater {
         message = "Downloading " + latest + "...";
         Thread t = new Thread(() -> {
             try {
-                Path mods = FMLPaths.MODSDIR.get();
+                // preview (test copy): download into a scratch folder, never into mods
+                Path mods = preview() ? FMLPaths.GAMEDIR.get().resolve("magma-update-preview") : FMLPaths.MODSDIR.get();
+                Files.createDirectories(mods);
                 Path part = mods.resolve(assetName + ".part");
                 Path fresh = mods.resolve(assetName + ".new"); // not a .jar, so the loader ignores it
                 HttpRequest req = HttpRequest.newBuilder(URI.create(assetUrl))
@@ -255,7 +268,7 @@ public final class Updater {
                 }
                 if (Files.size(part) < 10_000) throw new IllegalStateException("download looks broken");
                 Files.move(part, fresh, StandardCopyOption.REPLACE_EXISTING);
-                armSwap(fresh);
+                if (!preview()) armSwap(fresh);
                 progress = 1;
                 state = State.READY;
                 message = "Update " + latest + " ready - click Restart now";
