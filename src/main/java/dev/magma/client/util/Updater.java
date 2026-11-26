@@ -110,6 +110,13 @@ public final class Updater {
             } catch (Throwable t) {
                 MagmaClient.LOGGER.warn("[Magma] Couldn't leave the world cleanly before updating: {}", t.toString());
             }
+            // ask the helper to start the game again once the new jar is in place
+            try {
+                if (dev.magma.client.module.ModuleManager.get(dev.magma.client.modules.ClickGui.class).reopenAfterUpdate.get()) {
+                    Files.writeString(reopenFlag(), "1");
+                }
+            } catch (Exception ignored) {
+            }
             mc.stop();
         });
     }
@@ -289,21 +296,45 @@ public final class Updater {
      * Start a small helper that waits for this Minecraft process to exit, then deletes the old jar and renames
      * the downloaded one into place. (Windows keeps the running jar locked, so it can't be replaced while playing.)
      */
+    /** Exists only while "Update & restart" is closing the game: tells the helper to start Minecraft again. */
+    private static Path reopenFlag() {
+        return FMLPaths.GAMEDIR.get().resolve("magma-reopen.flag");
+    }
+
+    private static String q(Object o) {
+        return "'" + o.toString().replace("'", "''") + "'";
+    }
+
     private static void armSwap(Path fresh) throws Exception {
         Path old = currentJar();
         if (old == null) return;
-        String finalName = fresh.getFileName().toString().replaceFirst("\\.new$", "");
+        String finalName = fresh.getFileName().toString().replaceFirst("[.]new$", "");
+        Path target = fresh.resolveSibling(finalName);
         long pid = ProcessHandle.current().pid();
         ProcessBuilder pb;
         if (System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win")) {
-            String ps = "Wait-Process -Id " + pid + " -ErrorAction SilentlyContinue; Start-Sleep -Seconds 1; "
-                    + "Remove-Item -LiteralPath '" + old.toString().replace("'", "''") + "' -Force -ErrorAction SilentlyContinue; "
-                    + "Move-Item -LiteralPath '" + fresh.toString().replace("'", "''") + "' -Destination '"
-                    + fresh.resolveSibling(finalName).toString().replace("'", "''") + "' -Force";
-            pb = new ProcessBuilder("powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", ps);
+            // A small helper: remember how Minecraft was started, wait for it to close, swap the jars,
+            // and - only after "Update & restart" - start Minecraft again the same way.
+            String ps = String.join(System.lineSeparator(),
+                    "$ErrorActionPreference = 'SilentlyContinue'",
+                    "$cl = (Get-CimInstance Win32_Process -Filter 'ProcessId=" + pid + "').CommandLine",
+                    "Wait-Process -Id " + pid,
+                    "Start-Sleep -Seconds 1",
+                    "Remove-Item -LiteralPath " + q(old) + " -Force",
+                    "Move-Item -LiteralPath " + q(fresh) + " -Destination " + q(target) + " -Force",
+                    "if ((Test-Path -LiteralPath " + q(reopenFlag()) + ") -and $cl) {",
+                    "  Remove-Item -LiteralPath " + q(reopenFlag()) + " -Force",
+                    "  if ($cl.StartsWith('\"')) { $i = $cl.IndexOf('\"', 1); $exe = $cl.Substring(1, $i - 1); $rest = $cl.Substring($i + 1).TrimStart() }",
+                    "  else { $i = $cl.IndexOf(' '); $exe = $cl.Substring(0, $i); $rest = $cl.Substring($i + 1) }",
+                    "  Start-Process -FilePath $exe -ArgumentList $rest -WorkingDirectory " + q(FMLPaths.GAMEDIR.get()),
+                    "}",
+                    "Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force");
+            Path script = FMLPaths.GAMEDIR.get().resolve("magma-update.ps1");
+            Files.writeString(script, ps);
+            pb = new ProcessBuilder("powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                    "-WindowStyle", "Hidden", "-File", script.toString());
         } else {
-            String sh = "while kill -0 " + pid + " 2>/dev/null; do sleep 1; done; rm -f '" + old + "'; mv -f '" + fresh + "' '"
-                    + fresh.resolveSibling(finalName) + "'";
+            String sh = "while kill -0 " + pid + " 2>/dev/null; do sleep 1; done; rm -f '" + old + "'; mv -f '" + fresh + "' '" + target + "'";
             pb = new ProcessBuilder("sh", "-c", sh);
         }
         pb.redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.DISCARD);
@@ -312,6 +343,7 @@ public final class Updater {
 
     /** On startup: a previous update was downloaded but not swapped in (e.g. the PC shut down) - arm it again. */
     public static void resumePending() {
+        try { Files.deleteIfExists(reopenFlag()); } catch (Exception ignored) { } // leftover from an old session
         if (!canInstall()) return;
         try (var files = Files.list(FMLPaths.MODSDIR.get())) {
             files.filter(p -> p.getFileName().toString().startsWith("magmaclient") && p.getFileName().toString().endsWith(".jar.new"))

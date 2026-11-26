@@ -705,11 +705,27 @@ public class AutoMiner extends Module {
     }
 
     /** Can we hit this block from where we stand right now (reach + clear line of sight)? */
+    /** Is this block (partly) under the player's feet, i.e. holding them up? Breaking it could drop them. */
+    private boolean holdsPlayerUp(BlockPos p) {
+        var bb = mc.player.getBoundingBox();
+        int floorY = net.minecraft.util.Mth.floor(bb.minY - 0.01);
+        if (p.getY() != floorY) return false;
+        return p.getX() + 1 > bb.minX && p.getX() < bb.maxX && p.getZ() + 1 > bb.minZ && p.getZ() < bb.maxZ;
+    }
+
+    /** The current route step is "dig straight down" onto this block (landing was checked by the planner). */
+    private boolean plannedDigDown(BlockPos p) {
+        if (state != State.FOLLOW || path == null || idx + 1 >= path.size()) return false;
+        BlockPos cur = path.get(idx), nx = path.get(idx + 1);
+        return nx.equals(cur.below()) && nx.equals(p);
+    }
+
     private double reach() {
         return Math.max(3.0, mc.player.blockInteractionRange() - 0.3);
     }
 
     private boolean minableFromHere(BlockPos o) {
+        if (holdsPlayerUp(o)) return false; // never take the floor from under you - walk beside it first
         if (adjacentOnly.contains(o)) return Pathfinder.touchesOre(feet(), o);
         Vec3 eye = mc.player.getEyePosition();
         Vec3 aim = PlayerControl.aimPoint(mc.level, o, eye);
@@ -1719,7 +1735,19 @@ public class AutoMiner extends Module {
         double dz = n.getZ() + 0.5 - mc.player.getZ();
         double dist = Math.sqrt(dx * dx + dz * dz);
         float yaw = (float) Math.toDegrees(Math.atan2(dz, dx)) - 90f;
-        if (dist > 0.05) PlayerControl.rotate(yaw, human() ? 10f : 15f, Math.min(rot(), fast() ? 40f : 24f)); // gentle turns
+        if (dist < 0.45) {
+            // almost there: the direction to the point flips wildly this close, so DON'T turn (that was the spinning).
+            // Just nudge into place with forward/back/strafe keys.
+            if (dist < 0.08) {
+                mc.options.keyUp.setDown(false);
+            } else {
+                walkToKeepFacing(n);
+            }
+            mc.options.keyShift.setDown(mc.player.onGround() && SafeWalk.hurtFloor(mc.player.getOnPos()));
+            mc.options.keyJump.setDown(jump && mc.player.onGround() && mc.player.horizontalCollision);
+            return;
+        }
+        PlayerControl.rotate(yaw, human() ? 10f : 15f, Math.min(rot(), fast() ? 40f : 24f)); // gentle turns
         // only walk once roughly facing the node, otherwise we scrape tunnel corners and stall
         float err = Math.abs(net.minecraft.util.Mth.wrapDegrees(yaw - mc.player.getYRot()));
         mc.options.keyUp.setDown(dist > 0.1 && err < (human() ? 30f : fast() ? 50f : 40f));
@@ -1810,7 +1838,7 @@ public class AutoMiner extends Module {
             // Something is in the way. If it's a safe, nearby, non-floor block, just dig through it.
             Pathfinder pf = pf();
             boolean nearby = mc.player.getEyePosition().distanceToSqr(Vec3.atCenterOf(hp)) <= reach() * reach();
-            boolean isFloor = hp.equals(feet().below());
+            boolean isFloor = holdsPlayerUp(hp);
             if (aimed && nearby && !isFloor && pf.canBreakSafely(hp)) {
                 target = hp; // dig the blocker; the camera stays put so this can't oscillate
             } else {
@@ -1819,6 +1847,13 @@ public class AutoMiner extends Module {
             }
         }
         aimMiss = 0;
+        if (holdsPlayerUp(target) && !plannedDigDown(target)) {
+            // it's (partly) what we're standing on: breaking it could drop us into a hole or cave
+            if (ore != null && target.equals(ore)) adjacentOnly.add(ore); // stand beside it and mine it from the side
+            else blacklist.put(target.asLong(), 400);
+            replan("Not mining the block under you");
+            return;
+        }
         if (LavaUtil.breakDanger(mc.level, target, mc.player, strict.get()) != null) {
             blacklist.put(target.asLong(), 600);
             if (ore != null) blacklist.put(ore.asLong(), 600);

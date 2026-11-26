@@ -22,6 +22,7 @@ import java.util.function.Predicate;
  */
 public final class Pathfinder {
     private static final Direction[] HORIZONTAL = {Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST};
+    private static final int[][] DIAGONALS = {{1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
     private static final double INF = Double.MAX_VALUE;
     /** Weighted A*: greedier search so long tunnels through rock don't exhaust the node budget. */
     private static final double H_WEIGHT = 2.0;
@@ -241,7 +242,9 @@ public final class Pathfinder {
      * so long shafts down/up are found quickly instead of the search wandering sideways until it runs out of budget.
      */
     private double estimate(BlockPos a, BlockPos b) {
-        int horiz = Math.abs(a.getX() - b.getX()) + Math.abs(a.getZ() - b.getZ());
+        // octile distance: diagonal steps are allowed, so the straight-line "hypotenuse" is the cheapest way
+        int dx = Math.abs(a.getX() - b.getX()), dz = Math.abs(a.getZ() - b.getZ());
+        double horiz = Math.max(dx, dz) + 0.4142 * Math.min(dx, dz);
         int vert = Math.abs(a.getY() - b.getY());
         return horiz * H_WEIGHT + vert * (allowDig ? 4.0 : 2.5);
     }
@@ -416,6 +419,16 @@ public final class Pathfinder {
         if (placeBudget > 0 && standing && canPlaceInto(n)) {
             double c = cellCost(n.above(2));
             if (c < INF && lavaLevel(n.above()) < 2) out.add(new Move(n.above(), 4.5 + c, 1));
+        }
+
+        // diagonal walk (open ground only): both side squares must be open too, so we never clip a corner
+        for (int[] d : DIAGONALS) {
+            BlockPos to = n.offset(d[0], 0, d[1]);
+            BlockPos sideA = n.offset(d[0], 0, 0), sideB = n.offset(0, 0, d[1]);
+            if (!standing || !solidFloor(to.below())) continue;
+            if (cellCost(to) != 0 || cellCost(to.above()) != 0) continue;
+            if (cellCost(sideA) != 0 || cellCost(sideA.above()) != 0 || cellCost(sideB) != 0 || cellCost(sideB.above()) != 0) continue;
+            out.add(new Move(to, 1.4142));
         }
 
         // dig straight down

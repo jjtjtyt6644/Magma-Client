@@ -528,7 +528,7 @@ public class MenuScreen extends Screen {
             String info = Math.round(p * 100) + "%" + (t > 0 ? String.format(" \u00B7 %.1f/%.1f MB", d / 1048576.0, t / 1048576.0) : "");
             if (after + font.width(info) < tx + textW) text(g, info, after, y + 20, 0xFF6B7282);
         } else {
-            String sub = ready ? "Restarts in seconds, your world is saved first"
+            String sub = ready ? (cfg().reopenAfterUpdate.get() ? "Saves, closes and reopens by itself in seconds" : "Restarts in seconds, your world is saved first")
                     : dev.magma.client.util.Updater.notes().isEmpty() ? "A new version of Magma is out" : dev.magma.client.util.Updater.notes();
             text(g, clip(sub, (int) textW), tx, y + 32, 0xFF8B92A1);
         }
@@ -951,7 +951,7 @@ public class MenuScreen extends Screen {
         var st = dev.magma.client.util.Updater.state();
         boolean avail = st == dev.magma.client.util.Updater.State.AVAILABLE || st == dev.magma.client.util.Updater.State.READY
                 || st == dev.magma.client.util.Updater.State.DOWNLOADING;
-        float boxH = 8 + 20 + (avail ? 14 : 0) + 22 + groupRows(List.of(c.checkUpdates, c.autoUpdate));
+        float boxH = 8 + 20 + (avail ? 14 : 0) + 22 + groupRows(List.of(c.checkUpdates, c.autoUpdate, c.reopenAfterUpdate));
         Render2D.roundedRect(g, x, y, w, boxH, ROW_R, a(SURFACE));
         float yy = y + 6;
         // status line: coloured dot + what's going on, "checked x ago" on the right
@@ -1005,7 +1005,7 @@ public class MenuScreen extends Screen {
         text(g, cl, bx + cw / 2f - font.width(cl) / 2f, yy + 4, Theme.TEXT);
         chit(bx, yy, cw, 15, ck, b -> dev.magma.client.util.Updater.checkAsync(false), "Look for a new version on GitHub now");
         yy += 22;
-        for (Setting<?> st2 : List.of(c.checkUpdates, c.autoUpdate)) yy = drawSettingRow(g, st2, x + 10, yy, w - 20);
+        for (Setting<?> st2 : List.of(c.checkUpdates, c.autoUpdate, c.reopenAfterUpdate)) yy = drawSettingRow(g, st2, x + 10, yy, w - 20);
         return y + boxH + 18;
     }
 
