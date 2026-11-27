@@ -73,8 +73,8 @@ public class Hud extends Module {
         if (coords.get()) {
             double x = mc.player.getX(), y = mc.player.getY(), z = mc.player.getZ();
             boolean nether = mc.level.dimension() == net.minecraft.world.level.Level.NETHER;
-            String main = String.format("%.0f, %.0f, %.0f", x, y, z);
-            String alt = nether ? String.format("  OW %.0f, %.0f", x * 8, z * 8) : String.format("  N %.0f, %.0f", x / 8, z / 8);
+            String main = (int) Math.floor(x) + ", " + (int) Math.floor(y) + ", " + (int) Math.floor(z); // the block you're in, like F3
+            String alt = nether ? "  OW " + (int) Math.floor(x * 8) + ", " + (int) Math.floor(z * 8) : "  N " + (int) Math.floor(x / 8) + ", " + (int) Math.floor(z / 8);
             int chatOffset = mc.gui.getChat().isChatFocused() ? 16 : 0;
             float cy = sh - 16 - chatOffset;
             String lbl = "XYZ ";

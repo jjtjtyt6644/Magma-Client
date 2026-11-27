@@ -468,6 +468,28 @@ public class AutoMiner extends Module {
         return n;
     }
 
+    /**
+     * Where routes start from. Standing on the very edge of a block, the player's centre can hang over a hole
+     * (e.g. right after climbing out of water) - planning from there sent us straight back in. Use the block
+     * we're actually standing on instead.
+     */
+    private BlockPos routeStart() {
+        BlockPos f = feet();
+        if (!mc.player.onGround()) return f;
+        Pathfinder pf = newPf(1);
+        if (pf.solidFloor(f.below())) return f;
+        var bb = mc.player.getBoundingBox();
+        BlockPos best = f;
+        double bestD = Double.MAX_VALUE;
+        for (double x : new double[]{bb.minX + 0.01, bb.maxX - 0.01}) for (double z : new double[]{bb.minZ + 0.01, bb.maxZ - 0.01}) {
+            BlockPos c = BlockPos.containing(x, f.getY(), z);
+            if (!pf.solidFloor(c.below()) || !pf.passable(c) || !pf.passable(c.above())) continue;
+            double dx = c.getX() + 0.5 - mc.player.getX(), dz = c.getZ() + 0.5 - mc.player.getZ();
+            if (dx * dx + dz * dz < bestD) { bestD = dx * dx + dz * dz; best = c; }
+        }
+        return best;
+    }
+
     private BlockPos feet() {
         return BlockPos.containing(mc.player.getX(), mc.player.getY() + 0.2, mc.player.getZ());
     }
@@ -576,7 +598,7 @@ public class AutoMiner extends Module {
     private void search() {
         PlayerControl.releaseMovement();
         if (cooldown-- > 0) return;
-        BlockPos start = feet();
+        BlockPos start = routeStart();
         if (gotoTarget != null) {
             gotoStep(start);
             return;
@@ -1670,7 +1692,7 @@ public class AutoMiner extends Module {
             }
         }
         boolean stepUp = nx.getY() > cur.getY();
-        if (stepUp && mc.player.onGround() && mc.options.keyJump.isDown()) stepJumps++;
+        if (stepUp && !mc.player.isInWater() && mc.player.onGround() && mc.options.keyJump.isDown()) stepJumps++;
         if (stepUp && stepJumps > 8) {
             // jumped several times without getting up: the ceiling is probably still there server-side.
             // pause the jumping so the world can resync; the dig check above re-mines it if it came back.
@@ -1755,45 +1777,88 @@ public class AutoMiner extends Module {
     }
 
     /**
-     * Drowning guard: head under water and air running low (flooded tunnel, sank in deep water) -> drop
-     * everything and head for the nearest spot where our head is in the air, swimming up the whole way.
+     * Water guard. Two cases the route planner can't handle on its own:
+     * - head under water and air running low (flooded tunnel, sank): swim to the nearest air we can actually reach;
+     * - floating in deep water with nothing to stand on (fell in a lake/ocean): swim to the nearest spot we can stand
+     *   on and climb out. Routes are only planned from solid footing, so without this Goto gave up and left you there.
      */
     private boolean breathe() {
-        if (!mc.player.isEyeInFluid(net.minecraft.tags.FluidTags.WATER)) {
+        Pathfinder pf = newPf(1);
+        BlockPos f = feet();
+        boolean eyesWet = mc.player.isEyeInFluid(net.minecraft.tags.FluidTags.WATER);
+        int air = mc.player.getAirSupply(), max = mc.player.getMaxAirSupply();
+        boolean lowAir = eyesWet && (gettingAir && air < max || air <= max * 2 / 3);
+        // deep water: no footing under us. Bobbing at the surface counts too (feet pop out of the water for a moment),
+        // and once we're swimming we keep control until we're really standing on solid ground.
+        boolean overWater = mc.player.isInWater() || pf.isWater(f.below()) || pf.isWater(f);
+        boolean deep = overWater && !(mc.player.onGround() && pf.solidFloor(routeStart().below()))
+                && (gettingAir || !pf.solidFloor(f.below()) && !pf.solidFloor(f.below(2)));
+        if (!lowAir && !deep) {
             if (gettingAir) {
                 gettingAir = false;
-                replan("Got air");
+                gotoFails = 0;
+                replan("Out of the water");
             }
             return false;
         }
-        int air = mc.player.getAirSupply(), max = mc.player.getMaxAirSupply();
-        if (!gettingAir && air > max / 2) return false; // short dip: keep going, the route swims through
         gettingAir = true;
-        status = "Getting air";
+        status = lowAir ? "Getting air" : "Swimming to shore";
         breaking = null;
         mc.options.keyAttack.setDown(false);
         mc.options.keySprint.setDown(false);
         mc.options.keyShift.setDown(false);
-        Pathfinder pf = newPf(1);
-        BlockPos f = feet(), best = null;
-        double bestD = Double.MAX_VALUE;
-        for (int dx = -6; dx <= 6; dx++) for (int dz = -6; dz <= 6; dz++) for (int dy = -1; dy <= 5; dy++) {
-            BlockPos c = f.offset(dx, dy, dz);
-            if (!pf.passable(c) || !pf.passable(c.above()) || pf.isWater(c.above())) continue;
-            double d = dx * dx + dz * dz + dy * dy * 0.5;
-            if (d < bestD) { bestD = d; best = c; }
+
+        // flood fill through open cells only (never "through" a wall to air on the other side)
+        BlockPos from = lowAir ? BlockPos.containing(mc.player.getEyePosition()) : f;
+        java.util.ArrayDeque<BlockPos> queue = new java.util.ArrayDeque<>();
+        java.util.HashMap<BlockPos, BlockPos> parent = new java.util.HashMap<>();
+        queue.add(from);
+        parent.put(from, from);
+        // you can only climb out onto an edge about one block above the water surface (holding jump against it)
+        BlockPos surf = pf.isWater(f) ? f : f.below();
+        while (pf.isWater(surf.above())) surf = surf.above();
+        int maxStandY = surf.getY() + 1;
+        BlockPos found = null;
+        net.minecraft.core.Direction[] dirs = {net.minecraft.core.Direction.UP, net.minecraft.core.Direction.NORTH,
+                net.minecraft.core.Direction.SOUTH, net.minecraft.core.Direction.EAST, net.minecraft.core.Direction.WEST,
+                net.minecraft.core.Direction.DOWN};
+        while (!queue.isEmpty() && parent.size() < 12000) {
+            BlockPos c = queue.poll();
+            if (lowAir ? !pf.isWater(c)
+                    : !c.equals(from) && c.getY() <= maxStandY && pf.solidFloor(c.below()) && !pf.isWater(c.above()) && pf.passable(c.above())) {
+                found = c;
+                break;
+            }
+            for (net.minecraft.core.Direction d : dirs) {
+                BlockPos n = c.relative(d);
+                if (parent.containsKey(n) || !pf.passable(n)) continue;
+                // hunting air: stay close; hunting a shore: stay near the surface and look further out
+                if (lowAir ? n.distManhattan(from) > 24 : n.getY() < from.getY() - 2 || n.getY() > from.getY() + 2
+                        || Math.abs(n.getX() - from.getX()) > 40 || Math.abs(n.getZ() - from.getZ()) > 40) continue;
+                parent.put(n, c);
+                queue.add(n);
+            }
         }
-        if (best == null) {
-            // nowhere better nearby: straight up is the best bet
-            PlayerControl.rotate(mc.player.getYRot(), -60f, 20f);
-            mc.options.keyUp.setDown(false);
+        boolean forward = true;
+        if (found == null) {
+            if (lowAir) PlayerControl.rotate(mc.player.getYRot(), -60f, 20f); // nothing reachable: straight up
+            forward = !lowAir; // no shore in sight: keep swimming the way we face
         } else {
-            double dx = best.getX() + 0.5 - mc.player.getX(), dz = best.getZ() + 0.5 - mc.player.getZ();
-            float yaw = (float) Math.toDegrees(Math.atan2(dz, dx)) - 90f;
-            PlayerControl.rotate(yaw, -20f, 20f);
-            mc.options.keyUp.setDown(dx * dx + dz * dz > 0.04);
+            // steer at the first few cells of the swim path (around corners, not into walls)
+            java.util.ArrayList<BlockPos> route = new java.util.ArrayList<>();
+            for (BlockPos c = found; !c.equals(from); c = parent.get(c)) route.add(0, c);
+            BlockPos aim = route.isEmpty() ? found : route.get(0);
+            for (int i = 1; i < Math.min(4, route.size()); i++) {
+                BlockPos r = route.get(i);
+                if (r.getX() != aim.getX() && r.getZ() != aim.getZ()) break; // stop at a sideways turn
+                aim = r;
+            }
+            double dx = aim.getX() + 0.5 - mc.player.getX(), dz = aim.getZ() + 0.5 - mc.player.getZ();
+            forward = dx * dx + dz * dz > 0.04;
+            if (forward) PlayerControl.rotate((float) Math.toDegrees(Math.atan2(dz, dx)) - 90f, lowAir ? -20f : 0f, 20f);
         }
-        mc.options.keyJump.setDown(true); // swim up
+        mc.options.keyUp.setDown(forward);
+        mc.options.keyJump.setDown(true); // swim up / climb out onto the ledge
         return true;
     }
 
@@ -1814,7 +1879,7 @@ public class AutoMiner extends Module {
                 walkToKeepFacing(n);
             }
             mc.options.keyShift.setDown(mc.player.onGround() && SafeWalk.hurtFloor(mc.player.getOnPos()));
-            mc.options.keyJump.setDown(jump && mc.player.onGround() && mc.player.horizontalCollision);
+            mc.options.keyJump.setDown(holdJump(n, jump, dist));
             return;
         }
         PlayerControl.rotate(yaw, human() ? 10f : 15f, Math.min(rot(), fast() ? 40f : 24f)); // gentle turns
@@ -1823,10 +1888,19 @@ public class AutoMiner extends Module {
         mc.options.keyUp.setDown(dist > 0.1 && err < (human() ? 30f : fast() ? 50f : 40f));
         mc.options.keyShift.setDown(mc.player.onGround() && SafeWalk.hurtFloor(mc.player.getOnPos())); // sneak across magma
         // jump only when we're actually pushing against the step, never on the spot
+        mc.options.keyJump.setDown(holdJump(n, jump, dist));
+    }
+
+    /**
+     * Jump is HELD (like a player holding space) until we're actually up on the step - letting go the moment
+     * the feet leave the ground never gets you out of water or up a ledge.
+     */
+    private boolean holdJump(BlockPos n, boolean jump, double dist) {
         boolean wet = mc.player.isInWater();
-        // in water you can't "jump" off the ground: swim up (hold jump) against a ledge so it can climb out
-        mc.options.keyJump.setDown((jump && mc.player.onGround() && mc.player.horizontalCollision && dist < 1.2)
-                || (wet && (jump || mc.player.horizontalCollision || mc.player.isEyeInFluid(net.minecraft.tags.FluidTags.WATER))));
+        if (wet && mc.player.isEyeInFluid(net.minecraft.tags.FluidTags.WATER)) return true; // keep the head up
+        if (!jump) return wet && mc.player.horizontalCollision; // bumping a ledge while swimming: climb it
+        if (mc.player.getY() >= n.getY() - 0.05) return false; // made it up
+        return wet || dist < 1.5 || mc.player.horizontalCollision;
     }
 
     /** Aim at the block's exposed face and hold attack; LavaGuard still vets every hit. */
@@ -1846,9 +1920,11 @@ public class AutoMiner extends Module {
             if (tooWorn(tool) || (needsPick && !tool.is(net.minecraft.tags.ItemTags.PICKAXES))) {
                 int alt = healthyPickaxe(s);
                 if (alt == -1 && needsPick) {
-                    Chat.info("AutoMiner stopped: pickaxe is almost broken (" + durabilityLeft(tool) + " left) and there's no other healthy pickaxe in your hotbar.");
+                    boolean noPick = !tool.is(net.minecraft.tags.ItemTags.PICKAXES);
+                    Chat.info(noPick ? "AutoMiner stopped: this needs a pickaxe and there's none in your hotbar."
+                            : "AutoMiner stopped: pickaxe is almost broken (" + durabilityLeft(tool) + " left) and there's no other healthy pickaxe in your hotbar.");
                     mc.getSoundManager().play(net.minecraft.client.resources.sounds.SimpleSoundInstance.forUI(net.minecraft.sounds.SoundEvents.ITEM_BREAK, 1f));
-                    dev.magma.client.util.Notify.show("AutoMiner stopped - pickaxe almost broken", Theme.DANGER);
+                    dev.magma.client.util.Notify.show(noPick ? "AutoMiner stopped - no pickaxe" : "AutoMiner stopped - pickaxe almost broken", Theme.DANGER);
                     halt();
                     return;
                 }
