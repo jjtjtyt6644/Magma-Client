@@ -1,6 +1,6 @@
 <p align="center"><img src="logo.png" width="128" alt="Magma Client logo"></p>
 
-# Magma Client v1.11.0
+# Magma Client v1.11.1
 
 A client-side utility mod for **Minecraft 1.21.1 (NeoForge 21.1.259+)**: an auto miner that never digs into lava, safe Goto, a structure finder, X-Ray and more, with a clean menu on **Right Shift**.
 
@@ -43,7 +43,7 @@ Start typing anywhere to search. Tab switches pages. In chat, `.toggle <module>`
 | **X-Ray** | See-through ore blocks with a glow, for all vanilla and modded ores. |
 | **Scaffold** | Places blocks under your feet as you walk off edges (safe, fast bridging); hold jump to tower up. |
 | **FastPlace** | No 4-tick delay between block placements. |
-| **VeinMiner** | Mine one ore or log and it mines the rest of the vein or tree in reach (TreeCapitator). |
+| **VeinMiner** | Break one ore or log and the whole vein or tree drops at once (singleplayer; on servers it mines the rest for you). |
 | **PlayerESP** | Other players through walls: boxes (red when close) and tracers. |
 | **AutoCombat** | Hit-and-run fighting: steps in when your attack is fully charged, hits at the edge of reach, backs off out of reach and circles. Players and/or monsters. |
 | **InvCleaner** | Caps junk stacks and throws extras out so ores fit. |

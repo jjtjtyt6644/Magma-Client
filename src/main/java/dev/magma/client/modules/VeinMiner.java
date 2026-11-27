@@ -25,6 +25,7 @@ import java.util.Set;
 public class VeinMiner extends Module {
     public final BoolSetting ores = add(new BoolSetting("Ores", "Mine the whole ore vein.", true));
     public final BoolSetting logs = add(new BoolSetting("Trees", "Chop the whole tree (TreeCapitator).", true));
+    public final BoolSetting instant = add(new BoolSetting("Instant", "Singleplayer: the whole vein breaks at once and drops where you mined (servers: mines it block by block).", true));
     public final NumberSetting max = add(new NumberSetting("Max Blocks", "Most blocks it mines in one go.", 64, 4, 256, 4));
 
     private BlockPos watching;
@@ -64,6 +65,7 @@ public class VeinMiner extends Module {
             if (++watchTicks > 200) watching = null;
             else if (mc.level.getBlockState(watching).isAir()) {
                 collect(watching, watchBlock);
+                if (instant.get() && mc.getSingleplayerServer() != null && !queue.isEmpty()) breakAllNow(watching);
                 watching = null;
             }
         }
@@ -91,6 +93,39 @@ public class VeinMiner extends Module {
             try { mc.gameMode.continueDestroyBlock(p, face); } finally { selfClick = false; }
         }
         mc.player.swing(InteractionHand.MAIN_HAND);
+    }
+
+    /**
+     * Singleplayer: break the whole vein right now on the game's own server, like the VeinMiner mod - real drops,
+     * tool durability and XP - then pull the drops to the block you mined.
+     */
+    private void breakAllNow(BlockPos origin) {
+        var server = mc.getSingleplayerServer();
+        java.util.UUID id = mc.player.getUUID();
+        List<BlockPos> blocks = new ArrayList<>(queue);
+        Block block = veinBlock;
+        queue.clear();
+        server.execute(() -> {
+            var sp = server.getPlayerList().getPlayer(id);
+            if (sp == null) return;
+            var level = sp.serverLevel();
+            int done = 0;
+            for (BlockPos p : blocks) {
+                if (!level.getBlockState(p).is(block)) continue;
+                var tool = sp.getMainHandItem();
+                if (tool.isDamageableItem() && tool.getMaxDamage() - tool.getDamageValue() <= 1) break; // don't break your tool
+                if (sp.gameMode.destroyBlock(p)) done++;
+            }
+            // everything it dropped lands where you mined the first block
+            var box = new net.minecraft.world.phys.AABB(origin).inflate(12);
+            Vec3 at = Vec3.atCenterOf(origin);
+            for (var item : level.getEntitiesOfClass(net.minecraft.world.entity.item.ItemEntity.class, box)) {
+                if (item.getAge() < 5) { item.setPos(at.x, at.y, at.z); item.setDeltaMovement(Vec3.ZERO); }
+            }
+            for (var orb : level.getEntitiesOfClass(net.minecraft.world.entity.ExperienceOrb.class, box)) orb.setPos(at.x, at.y, at.z);
+            int n = done;
+            if (n > 0) mc.execute(() -> dev.magma.client.util.Notify.show("VeinMiner: " + (n + 1) + " blocks", dev.magma.client.util.Theme.OK));
+        });
     }
 
     private void stopBreaking() {
