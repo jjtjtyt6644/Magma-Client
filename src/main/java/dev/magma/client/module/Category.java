@@ -3,6 +3,7 @@ package dev.magma.client.module;
 public enum Category {
     SAFETY("Safety", "⛨"),
     WORLD("World", "⛏"),
+    MOVEMENT("Movement", "✈"),
     AUTOMATION("Automation", "⟳"),
     RENDER("Render", "◉"),
     CLIENT("Client", "⚙");

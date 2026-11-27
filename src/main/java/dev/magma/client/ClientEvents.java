@@ -84,6 +84,11 @@ public class ClientEvents {
     /** Fires when the attack key starts (and keeps) breaking a block. */
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onClickInput(InputEvent.InteractionKeyMappingTriggered event) {
+        if (ModuleManager.ready() && dev.magma.client.modules.Freecam.active()) { // no hitting/placing from the free camera
+            event.setSwingHand(false);
+            event.setCanceled(true);
+            return;
+        }
         if (!ModuleManager.ready() || !event.isAttack()) return;
         LavaGuard guard = ModuleManager.get(LavaGuard.class);
         if (guard.isEnabled() && guard.shouldBlockCurrentTarget()) {
@@ -136,7 +141,19 @@ public class ClientEvents {
     @SubscribeEvent
     public void onChat(net.neoforged.neoforge.client.event.ClientChatEvent event) {
         if (!ModuleManager.ready()) return;
-        if (dev.magma.client.modules.Goto.handleCommand(event.getMessage())) event.setCanceled(true);
+        String m = event.getMessage().trim();
+        if (m.startsWith(".toggle ") || m.startsWith(".t ")) { // .toggle fly
+            Module mod = ModuleManager.byName(m.substring(m.indexOf(' ') + 1).trim());
+            if (mod == null) dev.magma.client.util.Chat.info("No module called \"" + m.substring(m.indexOf(' ') + 1).trim() + "\".");
+            else {
+                mod.toggle();
+                dev.magma.client.util.Chat.info(mod.getName() + (mod.isEnabled() ? " on" : " off"));
+            }
+            event.setCanceled(true);
+            return;
+        }
+        if (dev.magma.client.modules.Goto.handleCommand(event.getMessage())
+                || dev.magma.client.modules.Builder.handleCommand(event.getMessage())) event.setCanceled(true);
     }
 
     @SubscribeEvent

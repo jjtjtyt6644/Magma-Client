@@ -1,6 +1,6 @@
 <p align="center"><img src="logo.png" width="128" alt="Magma Client logo"></p>
 
-# Magma Client v1.5.2
+# Magma Client v1.6.0
 
 A client-side utility mod for **Minecraft 1.21.1 (NeoForge 21.1.259+)**: an auto miner that never digs into lava, safe Goto, a structure finder, X-Ray and more, with a clean menu on **Right Shift**.
 
@@ -21,10 +21,10 @@ Magma updates itself from this repo's Releases. When a new version is out, a ban
 
 ## The menu (Right Shift)
 - **Home**: quick actions (**Start mining**, **Go to coordinates**, **Find a structure**), the cheats that are on right now, and live status.
-- **Safety / World / Automation / Render / Client**: one row per module. Click to toggle, ▾ for its settings, middle-click to bind a key. Each module shows only its key settings; **Show advanced settings** reveals the rest. **Add-ons** suggests modules that work well together.
+- **Safety / World / Movement / Automation / Render / Client**: one row per module. Click to toggle, ▾ for its settings, middle-click to bind a key. Each module shows only its key settings; **Show advanced settings** reveals the rest. **Add-ons** suggests modules that work well together.
 - **Settings**: theme, menu style, menu key and updates.
 
-Start typing anywhere to search. Tab switches pages.
+Start typing anywhere to search. Tab switches pages. In chat, `.toggle <module>` (or `.t fly`) switches any module.
 
 ## Modules
 | Module | What it does |
@@ -35,6 +35,10 @@ Start typing anywhere to search. Tab switches pages.
 | **Goto** | Walks to X Y Z safely (or type `.goto x y z` in chat). Sprints on safe stretches, shows a beam, the distance and an ETA, and converts Overworld/Nether coordinates. **Last Death** fills in where you died. |
 | **Base** | Saves your base location (**Set here** or type X/Y/Z). Turn it on, or type `.base`, to walk home. Goto's **Base** button and `.goto base` use it, and AutoMiner can **Return To Base When Full**. `.base set` saves where you stand. |
 | **AutoFind** | Finds a fortress, bastion, village, stronghold and more by their blocks, then walks there. Explores in a spiral, skips structures you've visited, and has **Find Next**. |
+| **Builder** | Builds a schematic for you. Drop `.schem` (WorldEdit), `.litematic` or `.nbt` files into `.minecraft/schematics`, then type `.build <name>` (optionally `90`/`180`/`270` to turn it). It builds layer by layer in front of you, faces stairs/logs/doors the right way, walks and pillars into reach, scaffolds floating blocks, takes the scaffolding down, and lists missing materials. In creative it takes blocks from the creative inventory. `.build list`, `.build stop`, `.build folder`. |
+| **Fly** | Fly in any game mode with a speed slider (1 = vanilla creative). Landing after you switch it off is safe. |
+| **NoFall** | No fall damage. |
+| **Freecam** | Detach the camera and fly around (through walls) to look at your surroundings; your character stays put and is outlined. |
 | **X-Ray** | See-through ore blocks with a glow, for all vanilla and modded ores. |
 | **InvCleaner** | Caps junk stacks and throws extras out so ores fit. |
 | **VillagerRoller** | Re-rolls a librarian until it sells the book you want. |

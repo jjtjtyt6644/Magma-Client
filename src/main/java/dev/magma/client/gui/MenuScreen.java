@@ -54,6 +54,7 @@ public class MenuScreen extends Screen {
         PAGES.add(new Page("Home", "Active cheats and live status", "⌂", null));
         PAGES.add(new Page("Safety", "Lava protection", Category.SAFETY.icon, Category.SAFETY));
         PAGES.add(new Page("World", "Auto mining", Category.WORLD.icon, Category.WORLD));
+        PAGES.add(new Page("Movement", "Fly, no fall, freecam", Category.MOVEMENT.icon, Category.MOVEMENT));
         PAGES.add(new Page("Automation", "Villager rolling, fast break, tools, food", Category.AUTOMATION.icon, Category.AUTOMATION));
         PAGES.add(new Page("Render", "X-Ray and vision", Category.RENDER.icon, Category.RENDER));
         PAGES.add(new Page("Client", "HUD and menu", Category.CLIENT.icon, Category.CLIENT));

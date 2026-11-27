@@ -5,7 +5,11 @@
   "compatibilityLevel": "JAVA_21",
   "client": [
     "ClientLevelAccessor",
-    "PredictionHandlerAccessor"
+    "PredictionHandlerAccessor",
+    "MovePacketAccessor",
+    "ClientCommonPacketListenerMixin",
+    "EntityTurnMixin",
+    "GuiCameraPlayerMixin"
   ],
   "injectors": {
     "defaultRequire": 0

@@ -21,6 +21,10 @@ public final class ModuleManager {
         MODULES.add(new Goto());
         MODULES.add(new Base());
         MODULES.add(new AutoFind());
+        MODULES.add(new Builder());
+        MODULES.add(new Fly());
+        MODULES.add(new NoFall());
+        MODULES.add(new Freecam());
         MODULES.add(new VillagerRoller());
         MODULES.add(new FastBreak());
         MODULES.add(new AutoTool());

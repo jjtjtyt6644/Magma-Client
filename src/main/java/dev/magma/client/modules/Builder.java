@@ -1,0 +1,703 @@
+package dev.magma.client.modules;
+
+import dev.magma.client.module.Category;
+import dev.magma.client.module.Module;
+import dev.magma.client.module.ModuleManager;
+import dev.magma.client.setting.BoolSetting;
+import dev.magma.client.setting.ButtonSetting;
+import dev.magma.client.setting.ModeSetting;
+import dev.magma.client.setting.TextSetting;
+import dev.magma.client.util.Chat;
+import dev.magma.client.util.Notify;
+import dev.magma.client.util.PlayerControl;
+import dev.magma.client.util.Schematic;
+import dev.magma.client.util.Theme;
+import dev.magma.client.util.WorldRender;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
+import net.minecraft.tags.BlockTags;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.inventory.ClickType;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.context.BlockPlaceContext;
+import net.minecraft.world.level.block.BedBlock;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.FallingBlock;
+import net.minecraft.world.level.block.LiquidBlock;
+import net.minecraft.world.level.block.Rotation;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BedPart;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
+import net.minecraft.world.level.block.state.properties.Property;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
+import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
+
+import java.nio.file.Path;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+/**
+ * Builds a schematic for you (.schem / .litematic / .nbt from .minecraft/schematics): layer by layer from the
+ * bottom, walking and pillaring into reach, putting up scaffolding under floating blocks and taking it down at the end.
+ * Blocks are faced the right way by trying each look direction until the placement matches the schematic.
+ */
+public class Builder extends Module {
+    public final TextSetting file = add(new TextSetting("Schematic", "File name in .minecraft/schematics (type .build list to see them).", "", null, 64));
+    public final ModeSetting rotation = add(new ModeSetting("Rotation", "Turn the build around.", "0", "0", "90", "180", "270"));
+    public final BoolSetting clearExtra = add(new BoolSetting("Clear Extra Blocks", "Also mine blocks standing where the schematic has air.", false));
+    public final BoolSetting removeScaffold = add(new BoolSetting("Remove Scaffold", "Take the scaffolding and pillars down when finished.", true));
+    public final BoolSetting preview = add(new BoolSetting("Preview", "Outline the blocks still to place.", true));
+    public final ButtonSetting buildHere = add(new ButtonSetting("Start", "Load the schematic and build it in front of you.", "Build here", () -> start(null, true)));
+    public final ButtonSetting openFolder = add(new ButtonSetting("Schematics", "Open the folder to drop schematic files into.", "Open folder", Builder::openFolder));
+
+    /** Properties the game sets by itself (connections, power, ...). They don't need to match. */
+    private static final Set<String> AUTO_PROPS = Set.of("waterlogged", "powered", "shape", "north", "south", "east", "west",
+            "up", "down", "distance", "persistent", "occupied", "triggered", "power", "lit", "open", "has_book", "has_record",
+            "attached", "disarmed", "in_wall", "moisture", "age", "stage", "note", "instrument", "enabled", "conditional",
+            "extended", "short", "locked", "snowy", "bottom", "hinge", "honey_level", "candles", "pickles", "eggs", "hatch",
+            "layers", "bites", "charges", "level", "berries", "unstable", "drag", "tip", "thickness", "vertical_direction",
+            "sculk_sensor_phase", "can_summon", "shrieking", "bloom", "cracked", "flower_amount", "segment_amount", "orientation",
+            "inverted", "crafting", "ominous", "trial_spawner_state", "vault_state", "has_bottle_0", "has_bottle_1", "has_bottle_2",
+            "slot_0_occupied", "slot_1_occupied", "slot_2_occupied", "slot_3_occupied", "slot_4_occupied", "slot_5_occupied");
+
+    private enum Phase { BUILD, CLEANUP }
+
+    private record Work(BlockPos pos, BlockState target, boolean breakIt) {}
+
+    private Schematic schem;
+    private String loadedName;
+    private BlockPos origin;
+    private Phase phase = Phase.BUILD;
+    private final List<Work> todo = new ArrayList<>();
+    private final Set<BlockPos> scaffold = new HashSet<>();
+    private final Map<BlockPos, Integer> deferred = new HashMap<>();
+    private final Map<BlockPos, Integer> fails = new HashMap<>();
+    private final Map<Item, Integer> missing = new LinkedHashMap<>();
+    private int tick, cooldown, totalPlace, toPlace;
+    private BlockPos moveGoal, breaking;
+    private int moveStarted;
+    private long startedAt;
+    private String status = "Idle";
+
+    public Builder() {
+        super("Builder", "Builds a schematic for you: scaffolds, places every block facing the right way, then cleans up.", Category.WORLD, -1);
+        advanced(clearExtra, removeScaffold, preview);
+    }
+
+    @Override public boolean persistEnabled() { return false; }
+
+    @Override
+    public String getInfo() {
+        if (schem == null) return null;
+        int pct = totalPlace == 0 ? 100 : (int) (100.0 * (totalPlace - toPlace) / totalPlace);
+        return schem.name + " " + pct + "%";
+    }
+
+    public String status() { return status; }
+
+    // ------------------------------------------------------------------ commands / start
+
+    /** .build name [rotation] | .build list | .build stop | .build here | .build folder */
+    public static boolean handleCommand(String msg) {
+        if (!msg.startsWith(".build")) return false;
+        Builder b = ModuleManager.get(Builder.class);
+        String[] a = msg.trim().split("\\s+");
+        if (a.length == 1) {
+            Chat.info("Builder: .build <file> [0|90|180|270] | .build list | .build stop | .build here | .build folder");
+            Chat.info("Put schematics (.schem, .litematic, .nbt) in " + Schematic.folder());
+            return true;
+        }
+        switch (a[1].toLowerCase()) {
+            case "stop", "cancel" -> b.setEnabled(false);
+            case "list" -> {
+                List<Path> l = Schematic.list();
+                if (l.isEmpty()) Chat.info("No schematics yet. Drop .schem/.litematic/.nbt files into " + Schematic.folder());
+                else for (Path p : l) Chat.info(" - " + p.getFileName());
+            }
+            case "folder" -> openFolder();
+            case "here" -> b.start(null, true);
+            default -> {
+                if (a.length > 2 && List.of("0", "90", "180", "270").contains(a[2])) b.rotation.set(a[2]);
+                b.start(msg.trim().substring(7).replaceFirst("\\s+(0|90|180|270)$", "").trim(), true);
+            }
+        }
+        return true;
+    }
+
+    private static void openFolder() {
+        net.minecraft.Util.getPlatform().openFile(Schematic.folder().toFile());
+    }
+
+    /** Load (if needed) and start building; the schematic's corner goes 2 blocks in front of you. */
+    public void start(String name, boolean newOrigin) {
+        if (mc.player == null) return;
+        if (name != null && !name.isBlank()) file.set(name);
+        if (file.get().isBlank()) {
+            Chat.info("Builder: type a schematic name first (.build list shows them).");
+            return;
+        }
+        Path p = Schematic.find(file.get().trim());
+        if (p == null) {
+            Chat.info("Builder: no schematic called \"" + file.get() + "\" in " + Schematic.folder());
+            return;
+        }
+        try {
+            Schematic s = Schematic.load(p);
+            schem = s.rotated(switch (rotation.get()) {
+                case "90" -> Rotation.CLOCKWISE_90;
+                case "180" -> Rotation.CLOCKWISE_180;
+                case "270" -> Rotation.COUNTERCLOCKWISE_90;
+                default -> Rotation.NONE;
+            });
+            loadedName = p.getFileName().toString();
+        } catch (Exception e) {
+            Chat.info("Builder: couldn't read " + p.getFileName() + " - " + e.getMessage());
+            return;
+        }
+        if (newOrigin || origin == null) {
+            Direction f = mc.player.getDirection();
+            origin = mc.player.blockPosition().relative(f, 2);
+            // keep the whole build in front of you: shift it sideways/back when it would grow behind you
+            if (f == Direction.NORTH) origin = origin.offset(0, 0, -(schem.sizeZ - 1));
+            if (f == Direction.WEST) origin = origin.offset(-(schem.sizeX - 1), 0, 0);
+        }
+        Chat.info("Builder: " + schem.name + " (" + schem.sizeX + "x" + schem.sizeY + "x" + schem.sizeZ + ", "
+                + schem.solidCount() + " blocks) at " + origin.toShortString()
+                + (schem.unknown > 0 ? " - " + schem.unknown + " unknown blocks skipped" : "") + ". Type .build stop to cancel.");
+        if (isEnabled()) setEnabled(false);
+        setEnabled(true);
+    }
+
+    @Override
+    protected void onEnable() {
+        if (schem == null || origin == null) {
+            // switched on from the menu: load the typed file at your feet
+            setEnabledSilently();
+            return;
+        }
+        AutoMiner am = ModuleManager.get(AutoMiner.class);
+        if (am.isEnabled()) am.setEnabled(false);
+        phase = Phase.BUILD;
+        todo.clear();
+        deferred.clear();
+        fails.clear();
+        missing.clear();
+        scaffold.clear();
+        am.placedLog = scaffold;
+        tick = 0;
+        cooldown = 0;
+        moveGoal = null;
+        breaking = null;
+        startedAt = System.currentTimeMillis();
+        rescan();
+        totalPlace = toPlace;
+        reportMissing();
+    }
+
+    /** Menu toggle with nothing loaded yet: do what "Build here" does. */
+    private void setEnabledSilently() {
+        mc.execute(() -> {
+            setEnabled(false);
+            start(null, true);
+        });
+    }
+
+    @Override
+    protected void onDisable() {
+        AutoMiner am = ModuleManager.get(AutoMiner.class);
+        if (am.placedLog == scaffold) am.placedLog = null;
+        if (moveGoal != null && am.getGotoTarget() != null && !am.isEnabled()) am.cancelGoto();
+        moveGoal = null;
+        if (breaking != null && mc.gameMode != null) mc.gameMode.stopDestroyBlock();
+        breaking = null;
+        PlayerControl.releaseMovement();
+        status = "Idle";
+    }
+
+    // ------------------------------------------------------------------ main loop
+
+    @Override
+    public void onTick() {
+        if (mc.player == null || mc.level == null || schem == null) return;
+        AutoMiner am = ModuleManager.get(AutoMiner.class);
+        if (am.isEnabled()) {
+            Chat.info("Builder stopped: AutoMiner was turned on.");
+            setEnabled(false);
+            return;
+        }
+        am.driveIfIdle(); // walks/pillars us into reach
+        tick++;
+        deferred.entrySet().removeIf(e -> e.getValue() <= tick);
+        if (cooldown > 0) { cooldown--; return; }
+        if (tick % 10 == 0 || todo.isEmpty()) rescan();
+
+        if (phase == Phase.CLEANUP) {
+            cleanup();
+            return;
+        }
+        Work w = pick();
+        if (w == null) {
+            if (!deferred.isEmpty()) { status = "Waiting (" + deferred.size() + " spots to retry)"; return; }
+            boolean anyLeft = todo.stream().anyMatch(x -> !x.breakIt());
+            if (anyLeft && !missing.isEmpty()) {
+                status = "Out of materials";
+            }
+            phase = Phase.CLEANUP;
+            return;
+        }
+        act(w);
+    }
+
+    private void act(Work w) {
+        BlockPos pos = w.pos();
+        if (!inReach(pos)) {
+            moveNear(pos);
+            return;
+        }
+        stopMoving();
+        if (w.breakIt()) {
+            status = "Clearing " + pos.toShortString();
+            breakBlock(pos);
+            return;
+        }
+        if (breaking != null) { mc.gameMode.stopDestroyBlock(); breaking = null; }
+        if (mc.player.getBoundingBox().intersects(new AABB(pos))) {
+            defer(pos, 40); // we're standing in it - do something else first
+            return;
+        }
+        if (!supported(pos, w.target())) {
+            status = "Scaffolding";
+            if (!placeScaffoldFor(pos)) defer(pos, 100);
+            return;
+        }
+        status = "Placing " + name(w.target());
+        if (!place(pos, w.target())) {
+            if (fails.merge(pos, 1, Integer::sum) >= 4) {
+                fails.remove(pos);
+                defer(pos, 300);
+            }
+        }
+    }
+
+    /** Rebuild the list of what still needs doing. */
+    private void rescan() {
+        todo.clear();
+        missing.clear();
+        toPlace = 0;
+        Map<Item, Integer> need = new HashMap<>();
+        for (Map.Entry<BlockPos, BlockState> e : schem.blocks.entrySet()) {
+            BlockPos pos = origin.offset(e.getKey());
+            if (!mc.level.isLoaded(pos)) continue;
+            BlockState target = e.getValue(), cur = mc.level.getBlockState(pos);
+            if (target.isAir()) {
+                if (clearExtra.get() && !cur.isAir() && !cur.canBeReplaced() && !scaffold.contains(pos) && cur.getFluidState().isEmpty())
+                    todo.add(new Work(pos, target, true));
+                continue;
+            }
+            if (skip(target) || matches(cur, target)) continue;
+            if (!cur.isAir() && !cur.canBeReplaced()) {
+                todo.add(new Work(pos, target, true)); // wrong block in the way
+            }
+            todo.add(new Work(pos, target, false));
+            toPlace++;
+            need.merge(target.getBlock().asItem(), 1, Integer::sum);
+        }
+        if (!mc.player.getAbilities().instabuild) {
+            for (Map.Entry<Item, Integer> e : need.entrySet()) {
+                int have = count(e.getKey());
+                if (have < e.getValue()) missing.put(e.getKey(), e.getValue() - have);
+            }
+        }
+    }
+
+    /** Next job: clear blockers first, then the lowest layer, nearest first. */
+    private Work pick() {
+        Vec3 eye = mc.player.getEyePosition();
+        Work best = null;
+        double bd = Double.MAX_VALUE;
+        for (Work w : todo) {
+            if (!w.breakIt() || deferred.containsKey(w.pos())) continue;
+            double d = eye.distanceToSqr(Vec3.atCenterOf(w.pos()));
+            if (d < bd) { bd = d; best = w; }
+        }
+        if (best != null) return best;
+        // placing: layer by layer from the bottom; a layer we have no blocks for doesn't hold up the rest
+        java.util.TreeMap<Integer, List<Work>> layers = new java.util.TreeMap<>();
+        for (Work w : todo) {
+            if (w.breakIt() || deferred.containsKey(w.pos())) continue;
+            if (!hasItem(w.target().getBlock().asItem())) continue;
+            layers.computeIfAbsent(w.pos().getY(), k -> new ArrayList<>()).add(w);
+        }
+        for (List<Work> layer : layers.values()) {
+            Work nearest = null, nearestSupported = null;
+            double nd = Double.MAX_VALUE, sd = Double.MAX_VALUE;
+            for (Work w : layer) {
+                double d = eye.distanceToSqr(Vec3.atCenterOf(w.pos()));
+                if (d < nd) { nd = d; nearest = w; }
+                if (d < sd && supported(w.pos(), w.target())) { sd = d; nearestSupported = w; }
+            }
+            return nearestSupported != null ? nearestSupported : nearest;
+        }
+        return null;
+    }
+
+    private void cleanup() {
+        if (!removeScaffold.get()) { finish(); return; }
+        Vec3 eye = mc.player.getEyePosition();
+        BlockPos best = null;
+        for (BlockPos p : scaffold) {
+            BlockState s = mc.level.getBlockState(p);
+            if (s.isAir() || !s.getFluidState().isEmpty() || deferred.containsKey(p)) continue;
+            BlockState want = schem.blocks.get(p.subtract(origin));
+            if (want != null && !want.isAir()) continue; // turned out to be part of the build
+            // top-down, then nearest
+            if (best == null || p.getY() > best.getY()
+                    || p.getY() == best.getY() && eye.distanceToSqr(Vec3.atCenterOf(p)) < eye.distanceToSqr(Vec3.atCenterOf(best))) best = p;
+        }
+        if (best == null) { finish(); return; }
+        status = "Removing scaffold";
+        if (!inReach(best)) { moveNear(best); return; }
+        stopMoving();
+        breakBlock(best);
+    }
+
+    private void finish() {
+        long secs = (System.currentTimeMillis() - startedAt) / 1000;
+        rescan();
+        if (toPlace == 0) {
+            Chat.info("Builder: finished " + schem.name + " in " + secs / 60 + "m " + secs % 60 + "s.");
+            Notify.show("Build finished", Theme.OK);
+        } else {
+            Chat.info("Builder: stopped with " + toPlace + " blocks left.");
+            reportMissing();
+            Notify.show("Build stopped - " + toPlace + " left", Theme.WARN);
+        }
+        setEnabled(false);
+    }
+
+    private void reportMissing() {
+        if (missing.isEmpty()) return;
+        StringBuilder sb = new StringBuilder("Builder: missing materials - ");
+        int n = 0;
+        for (Map.Entry<Item, Integer> e : missing.entrySet()) {
+            if (n++ > 0) sb.append(", ");
+            if (n > 8) { sb.append("..."); break; }
+            sb.append(e.getValue()).append("x ").append(e.getKey().getDescription().getString());
+        }
+        Chat.info(sb.toString());
+    }
+
+    // ------------------------------------------------------------------ moving
+
+    private boolean inReach(BlockPos pos) {
+        double reach = mc.player.blockInteractionRange() - 0.4;
+        return mc.player.getEyePosition().distanceToSqr(Vec3.atCenterOf(pos)) <= reach * reach;
+    }
+
+    private void moveNear(BlockPos pos) {
+        AutoMiner am = ModuleManager.get(AutoMiner.class);
+        BlockPos goal = pos.above();
+        if (am.getGotoTarget() != null && goal.equals(moveGoal)) {
+            status = "Walking to " + pos.toShortString();
+            if (tick - moveStarted > 20 * 40) { // 40 s without getting there
+                am.cancelGoto();
+                defer(pos, 400);
+                moveGoal = null;
+            }
+            return;
+        }
+        if (goal.equals(moveGoal) && am.getGotoTarget() == null) {
+            // the trip ended but we're still out of reach: try other blocks first
+            moveGoal = null;
+            if (fails.merge(pos, 1, Integer::sum) >= 2) {
+                fails.remove(pos);
+                defer(pos, 400);
+            }
+            return;
+        }
+        am.placedLog = scaffold;
+        am.startGotoQuiet(goal, true);
+        moveGoal = goal;
+        moveStarted = tick;
+        status = "Walking to " + pos.toShortString();
+    }
+
+    private void stopMoving() {
+        AutoMiner am = ModuleManager.get(AutoMiner.class);
+        if (moveGoal != null && am.getGotoTarget() != null) am.cancelGoto();
+        moveGoal = null;
+    }
+
+    private void defer(BlockPos pos, int ticks) {
+        deferred.put(pos, tick + ticks);
+    }
+
+    // ------------------------------------------------------------------ placing
+
+    /** Things we don't place ourselves: air/fluids, the top half of doors/plants, bed heads, unobtainable blocks. */
+    private static boolean skip(BlockState s) {
+        Block b = s.getBlock();
+        if (s.isAir() || b instanceof LiquidBlock || b == Blocks.PISTON_HEAD || b == Blocks.MOVING_PISTON
+                || b == Blocks.NETHER_PORTAL || b == Blocks.END_PORTAL || b == Blocks.FIRE || b == Blocks.SOUL_FIRE
+                || b == Blocks.BUBBLE_COLUMN) return true;
+        if (s.hasProperty(BlockStateProperties.DOUBLE_BLOCK_HALF) && s.getValue(BlockStateProperties.DOUBLE_BLOCK_HALF) == DoubleBlockHalf.UPPER) return true;
+        if (b instanceof BedBlock && s.getValue(BedBlock.PART) == BedPart.HEAD) return true;
+        return b.asItem() == Items.AIR;
+    }
+
+    static boolean matches(BlockState cur, BlockState target) {
+        if (cur.getBlock() != target.getBlock()) return false;
+        for (Property<?> p : target.getProperties()) {
+            if (AUTO_PROPS.contains(p.getName())) continue;
+            if (!cur.hasProperty(p) || !cur.getValue(p).equals(target.getValue(p))) return false;
+        }
+        return true;
+    }
+
+    private static String name(BlockState s) {
+        return s.getBlock().getName().getString();
+    }
+
+    /** Is there a face to click on (and, for sand/gravel, something underneath)? */
+    private boolean supported(BlockPos pos, BlockState target) {
+        if (target.getBlock() instanceof FallingBlock && clickable(mc.level.getBlockState(pos.below())) == false) return false;
+        for (Direction d : Direction.values()) if (clickable(mc.level.getBlockState(pos.relative(d)))) return true;
+        return false;
+    }
+
+    /** A block we can place against without opening a menu or using it. */
+    private static boolean clickable(BlockState s) {
+        if (s.isAir() || s.canBeReplaced() || !s.getFluidState().isEmpty() && s.getBlock() instanceof LiquidBlock) return false;
+        if (s.hasBlockEntity()) return false;
+        return !(s.is(BlockTags.DOORS) || s.is(BlockTags.TRAPDOORS) || s.is(BlockTags.FENCE_GATES) || s.is(BlockTags.BUTTONS)
+                || s.is(BlockTags.BEDS) || s.is(BlockTags.ANVIL) || s.is(Blocks.CRAFTING_TABLE) || s.is(Blocks.LEVER)
+                || s.is(Blocks.NOTE_BLOCK) || s.is(Blocks.REPEATER) || s.is(Blocks.COMPARATOR) || s.is(Blocks.CAKE)
+                || s.is(Blocks.CARTOGRAPHY_TABLE) || s.is(Blocks.LOOM) || s.is(Blocks.STONECUTTER) || s.is(Blocks.GRINDSTONE)
+                || s.is(Blocks.SMITHING_TABLE) || s.is(Blocks.FLETCHING_TABLE) || s.is(Blocks.RESPAWN_ANCHOR)
+                || s.is(Blocks.DAYLIGHT_DETECTOR) || s.is(Blocks.REDSTONE_WIRE) || s.is(BlockTags.CAULDRONS)
+                || s.is(BlockTags.CANDLES) || s.is(BlockTags.FLOWER_POTS));
+    }
+
+    private record Plan(BlockPos against, Direction face, Vec3 hit, float yaw, float pitch, boolean exact) {}
+
+    /**
+     * Try every face to click and every way to look until the game would place exactly the state we want
+     * (stairs, logs, slabs, observers... all depend on where you look and which face you click).
+     */
+    private Plan plan(BlockPos pos, BlockState target, ItemStack stack) {
+        float oy = mc.player.getYRot(), op = mc.player.getXRot();
+        Plan fallback = null;
+        float[] yaws = {oy, 0, 90, 180, -90};
+        float[] pitches = {0, 80, -80};
+        try {
+            for (Direction d : Direction.values()) {
+                BlockPos against = pos.relative(d);
+                if (!clickable(mc.level.getBlockState(against))) continue;
+                Direction face = d.getOpposite();
+                double[] hys = face.getAxis() == Direction.Axis.Y ? new double[]{face == Direction.UP ? 1.0 : 0.0} : new double[]{0.25, 0.75};
+                for (double hy : hys) {
+                    Vec3 hit = new Vec3(against.getX() + 0.5 + face.getStepX() * 0.5, against.getY() + hy,
+                            against.getZ() + 0.5 + face.getStepZ() * 0.5);
+                    if (mc.player.getEyePosition().distanceToSqr(hit) > 30) continue;
+                    for (float yaw : yaws) for (float pitch : pitches) {
+                        mc.player.setYRot(yaw);
+                        mc.player.setXRot(pitch);
+                        BlockPlaceContext ctx = new BlockPlaceContext(mc.player, InteractionHand.MAIN_HAND, stack, new BlockHitResult(hit, face, against, false));
+                        if (!ctx.getClickedPos().equals(pos) || !ctx.canPlace()) continue;
+                        BlockState st = target.getBlock().getStateForPlacement(ctx);
+                        if (st == null) continue;
+                        if (matches(st, target)) return new Plan(against, face, hit, yaw, pitch, true);
+                        if (fallback == null) fallback = new Plan(against, face, hit, yaw, pitch, false);
+                    }
+                }
+            }
+        } finally {
+            mc.player.setYRot(oy);
+            mc.player.setXRot(op);
+        }
+        return fallback;
+    }
+
+    private boolean place(BlockPos pos, BlockState target) {
+        Item item = target.getBlock().asItem();
+        int slot = takeToHotbar(item);
+        if (slot < 0) { defer(pos, 200); return false; }
+        PlayerControl.selectSlot(slot);
+        ItemStack stack = mc.player.getInventory().getItem(slot);
+        Plan p = plan(pos, target, stack);
+        if (p == null) return false;
+        click(p, slot);
+        cooldown = mc.player.getAbilities().instabuild ? 1 : 2;
+        return true;
+    }
+
+    /** Look the way the plan says (told to the server first), then right-click the face. */
+    private void click(Plan p, int slot) {
+        mc.player.setYRot(p.yaw());
+        mc.player.setXRot(p.pitch());
+        mc.player.yRotO = p.yaw();
+        mc.player.xRotO = p.pitch();
+        if (mc.getConnection() != null)
+            mc.getConnection().send(new ServerboundMovePlayerPacket.Rot(p.yaw(), p.pitch(), mc.player.onGround()));
+        mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, new BlockHitResult(p.hit(), p.face(), p.against(), false));
+        mc.player.swing(InteractionHand.MAIN_HAND);
+    }
+
+    /**
+     * Floating block (nothing to click on yet): put a junk block next to it, on a spot the build leaves empty,
+     * so there's something to place against. Removed again at the end.
+     */
+    private boolean placeScaffoldFor(BlockPos pos) {
+        // breadth-first through empty, not-part-of-the-build cells until one touches something solid
+        ArrayDeque<BlockPos> q = new ArrayDeque<>();
+        Map<BlockPos, BlockPos> parent = new HashMap<>();
+        q.add(pos);
+        parent.put(pos, pos);
+        BlockPos spot = null;
+        while (!q.isEmpty() && parent.size() < 400) {
+            BlockPos c = q.poll();
+            if (!c.equals(pos)) {
+                boolean touches = false;
+                for (Direction d : Direction.values()) if (clickable(mc.level.getBlockState(c.relative(d)))) { touches = true; break; }
+                if (touches) { spot = c; break; }
+            }
+            if (c.distManhattan(pos) >= 5) continue;
+            for (Direction d : new Direction[]{Direction.DOWN, Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST, Direction.UP}) {
+                BlockPos n = c.relative(d);
+                if (parent.containsKey(n) || !mc.level.getBlockState(n).canBeReplaced()) continue;
+                BlockState want = schem.blocks.get(n.subtract(origin));
+                if (want != null && !want.isAir()) continue; // don't block a spot the build needs
+                if (mc.player.getBoundingBox().intersects(new AABB(n))) continue;
+                parent.put(n, c);
+                q.add(n);
+            }
+        }
+        if (spot == null) return false;
+        if (!inReach(spot)) { moveNear(spot); return true; }
+        int slot = junkSlot();
+        if (slot < 0) {
+            if (tick % 200 == 1) Chat.info("Builder: need junk blocks (cobblestone, dirt, netherrack...) for scaffolding.");
+            return false;
+        }
+        PlayerControl.selectSlot(slot);
+        Plan p = plan(spot, ((BlockItem) mc.player.getInventory().getItem(slot).getItem()).getBlock().defaultBlockState(),
+                mc.player.getInventory().getItem(slot));
+        if (p == null) return false;
+        click(p, slot);
+        scaffold.add(spot);
+        cooldown = 2;
+        return true;
+    }
+
+    private int junkSlot() {
+        for (int i = 0; i < 9; i++) if (AutoMiner.isScaffold(mc.player.getInventory().getItem(i))) return i;
+        for (int i = 9; i < 36; i++) {
+            if (AutoMiner.isScaffold(mc.player.getInventory().getItem(i))) {
+                int hb = freeHotbarSlot();
+                mc.gameMode.handleInventoryMouseClick(mc.player.inventoryMenu.containerId, i, hb, ClickType.SWAP, mc.player);
+                return hb;
+            }
+        }
+        return -1;
+    }
+
+    // ------------------------------------------------------------------ breaking
+
+    private void breakBlock(BlockPos pos) {
+        BlockState s = mc.level.getBlockState(pos);
+        if (s.isAir()) { breaking = null; return; }
+        int slot = PlayerControl.bestToolSlot(s, -1);
+        if (slot >= 0) PlayerControl.selectSlot(slot);
+        Vec3 c = Vec3.atCenterOf(pos);
+        PlayerControl.lookAt(c, 40f);
+        Direction face = Direction.getNearest(mc.player.getEyePosition().subtract(c));
+        if (!pos.equals(breaking)) {
+            if (breaking != null) mc.gameMode.stopDestroyBlock();
+            mc.gameMode.startDestroyBlock(pos, face);
+            breaking = pos;
+        } else {
+            mc.gameMode.continueDestroyBlock(pos, face);
+        }
+        mc.player.swing(InteractionHand.MAIN_HAND);
+    }
+
+    // ------------------------------------------------------------------ inventory
+
+    private int count(Item item) {
+        int n = 0;
+        for (int i = 0; i < 36; i++) {
+            ItemStack st = mc.player.getInventory().getItem(i);
+            if (st.is(item)) n += st.getCount();
+        }
+        return n;
+    }
+
+    private boolean hasItem(Item item) {
+        return mc.player.getAbilities().instabuild || count(item) > 0;
+    }
+
+    /** Get this item into the hotbar (swap it in from the inventory, or take it from creative). -1 if we have none. */
+    private int takeToHotbar(Item item) {
+        var inv = mc.player.getInventory();
+        for (int i = 0; i < 9; i++) if (inv.getItem(i).is(item)) return i;
+        int hb = freeHotbarSlot();
+        for (int i = 9; i < 36; i++) {
+            if (inv.getItem(i).is(item)) {
+                mc.gameMode.handleInventoryMouseClick(mc.player.inventoryMenu.containerId, i, hb, ClickType.SWAP, mc.player);
+                return hb;
+            }
+        }
+        if (mc.player.getAbilities().instabuild) {
+            ItemStack st = new ItemStack(item, 64);
+            inv.setItem(hb, st);
+            mc.gameMode.handleCreativeModeItemAdd(st, 36 + hb);
+            return hb;
+        }
+        return -1;
+    }
+
+    /** An empty hotbar slot, else one that isn't holding a tool or weapon. */
+    private int freeHotbarSlot() {
+        var inv = mc.player.getInventory();
+        for (int i = 0; i < 9; i++) if (inv.getItem(i).isEmpty()) return i;
+        for (int i = 8; i >= 0; i--) {
+            ItemStack st = inv.getItem(i);
+            if (!st.isDamageableItem() && !st.has(net.minecraft.core.component.DataComponents.FOOD)) return i;
+        }
+        return 8;
+    }
+
+    // ------------------------------------------------------------------ preview
+
+    @Override
+    public void onRenderLast(RenderLevelStageEvent event) {
+        if (!preview.get() || schem == null || origin == null) return;
+        List<Work> list = new ArrayList<>(todo);
+        BlockPos o = origin;
+        WorldRender.draw(event, b -> {
+            b.box(new AABB(o.getX(), o.getY(), o.getZ(), o.getX() + schem.sizeX, o.getY() + schem.sizeY, o.getZ() + schem.sizeZ), 0x90FFFFFF, 0);
+            int n = 0;
+            Set<BlockPos> drawn = new LinkedHashSet<>();
+            for (Work w : list) {
+                if (n++ > 1500 || !drawn.add(w.pos())) continue;
+                if (w.breakIt()) b.block(w.pos(), 0xFFFF5252, 0x30FF5252);
+                else b.block(w.pos(), 0xC04FC3F7, 0x204FC3F7);
+            }
+        });
+    }
+}

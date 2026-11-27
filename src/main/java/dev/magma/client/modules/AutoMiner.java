@@ -365,7 +365,7 @@ public class AutoMiner extends Module {
             Blocks.END_STONE, Blocks.SANDSTONE, Blocks.RED_SANDSTONE, Blocks.TERRACOTTA, Blocks.CLAY, Blocks.PACKED_MUD,
             Blocks.MUD_BRICKS, Blocks.STONE_BRICKS, Blocks.DEEPSLATE_BRICKS, Blocks.MOSS_BLOCK);
 
-    private static boolean isScaffold(ItemStack st) {
+    public static boolean isScaffold(ItemStack st) {
         return st.getItem() instanceof net.minecraft.world.item.BlockItem bi && SCAFFOLD.contains(bi.getBlock());
     }
 
@@ -416,6 +416,7 @@ public class AutoMiner extends Module {
         mc.gameMode.useItemOn(mc.player, net.minecraft.world.InteractionHand.MAIN_HAND, new BlockHitResult(hitVec, face, against, false));
         mc.player.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
         placeCooldown = cooldownTicks;
+        if (placedLog != null) placedLog.add(against.relative(face));
     }
 
     /** Jump and place a block under ourselves. */
@@ -884,7 +885,18 @@ public class AutoMiner extends Module {
     public BlockPos getGotoTarget() { return gotoTarget; }
 
     /** Walk/dig/climb to a position using all the miner's safety rules. */
+    /** Builder: blocks the engine placed (bridges/pillars) while this is non-null, so they can be removed later. */
+    public java.util.Set<BlockPos> placedLog;
+    private boolean gotoQuiet;
+
+    /** Same as startGoto, without chat/toast messages (Builder moves around a lot). */
+    public void startGotoQuiet(BlockPos target, boolean exactY) {
+        startGoto(target, false, false, exactY);
+        gotoQuiet = true;
+    }
+
     public void startGoto(BlockPos target, boolean dig, boolean mineOnWay, boolean exactY) {
+        gotoQuiet = false;
         gotoExactY = exactY;
         gotoDig = dig;
         gotoBest = Double.MAX_VALUE;
@@ -914,8 +926,11 @@ public class AutoMiner extends Module {
     private void finishGoto(boolean arrived, String msg) {
         finishingGoto = true;
         try {
-            dev.magma.client.util.Notify.show(msg, arrived ? Theme.OK : Theme.WARN);
-            Chat.info(msg);
+            if (!gotoQuiet) {
+                dev.magma.client.util.Notify.show(msg, arrived ? Theme.OK : Theme.WARN);
+                Chat.info(msg);
+            }
+            gotoQuiet = false;
             gotoTarget = null;
             Goto g = ModuleManager.get(Goto.class);
             if (g.isEnabled()) g.setEnabled(false);
