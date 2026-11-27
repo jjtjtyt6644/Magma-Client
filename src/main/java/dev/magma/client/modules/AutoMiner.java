@@ -156,6 +156,7 @@ public class AutoMiner extends Module {
         replan("Can't reach block");
     }
     private boolean lowHpPaused;
+    private boolean gettingAir;
     private Vec3 jitter = Vec3.ZERO;
     private final java.util.Random rng = new java.util.Random();
     private final Set<BlockPos> vein = new HashSet<>();
@@ -529,6 +530,7 @@ public class AutoMiner extends Module {
         gotoProgress();
         // very low health: eat (golden apple first) before anything else, even mid-fight
         if (autoEat.get() && mc.player.getHealth() <= 6 && eat(true)) return;
+        if (breathe()) return; // running out of air beats everything except an emergency snack
         if (defend.get() && defend()) return;
         if (autoEat.get() && eat(false)) return;
 
@@ -1752,6 +1754,49 @@ public class AutoMiner extends Module {
         return dx * dx + dz * dz < 0.3 * 0.3 && feet().getY() == n.getY() && mc.player.onGround();
     }
 
+    /**
+     * Drowning guard: head under water and air running low (flooded tunnel, sank in deep water) -> drop
+     * everything and head for the nearest spot where our head is in the air, swimming up the whole way.
+     */
+    private boolean breathe() {
+        if (!mc.player.isEyeInFluid(net.minecraft.tags.FluidTags.WATER)) {
+            if (gettingAir) {
+                gettingAir = false;
+                replan("Got air");
+            }
+            return false;
+        }
+        int air = mc.player.getAirSupply(), max = mc.player.getMaxAirSupply();
+        if (!gettingAir && air > max / 2) return false; // short dip: keep going, the route swims through
+        gettingAir = true;
+        status = "Getting air";
+        breaking = null;
+        mc.options.keyAttack.setDown(false);
+        mc.options.keySprint.setDown(false);
+        mc.options.keyShift.setDown(false);
+        Pathfinder pf = newPf(1);
+        BlockPos f = feet(), best = null;
+        double bestD = Double.MAX_VALUE;
+        for (int dx = -6; dx <= 6; dx++) for (int dz = -6; dz <= 6; dz++) for (int dy = -1; dy <= 5; dy++) {
+            BlockPos c = f.offset(dx, dy, dz);
+            if (!pf.passable(c) || !pf.passable(c.above()) || pf.isWater(c.above())) continue;
+            double d = dx * dx + dz * dz + dy * dy * 0.5;
+            if (d < bestD) { bestD = d; best = c; }
+        }
+        if (best == null) {
+            // nowhere better nearby: straight up is the best bet
+            PlayerControl.rotate(mc.player.getYRot(), -60f, 20f);
+            mc.options.keyUp.setDown(false);
+        } else {
+            double dx = best.getX() + 0.5 - mc.player.getX(), dz = best.getZ() + 0.5 - mc.player.getZ();
+            float yaw = (float) Math.toDegrees(Math.atan2(dz, dx)) - 90f;
+            PlayerControl.rotate(yaw, -20f, 20f);
+            mc.options.keyUp.setDown(dx * dx + dz * dz > 0.04);
+        }
+        mc.options.keyJump.setDown(true); // swim up
+        return true;
+    }
+
     private void walkTo(BlockPos n, boolean jump) {
         mc.options.keyDown.setDown(false);
         mc.options.keyLeft.setDown(false);
@@ -1781,7 +1826,7 @@ public class AutoMiner extends Module {
         boolean wet = mc.player.isInWater();
         // in water you can't "jump" off the ground: swim up (hold jump) against a ledge so it can climb out
         mc.options.keyJump.setDown((jump && mc.player.onGround() && mc.player.horizontalCollision && dist < 1.2)
-                || (wet && (jump || mc.player.horizontalCollision)));
+                || (wet && (jump || mc.player.horizontalCollision || mc.player.isEyeInFluid(net.minecraft.tags.FluidTags.WATER))));
     }
 
     /** Aim at the block's exposed face and hold attack; LavaGuard still vets every hit. */

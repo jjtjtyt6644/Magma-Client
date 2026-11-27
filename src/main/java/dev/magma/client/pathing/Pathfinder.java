@@ -149,7 +149,10 @@ public final class Pathfinder {
             return lv == 1 ? (strict ? lavaMarginCost * 2 : lavaMarginCost) : 0;
         }
         if (!allowDig || !canBreakSafely(p)) return INF;
+        // water right above pours in and floods the tunnel (that's how people drowned); water beside it is risky
+        if (isWater(p.above())) return INF;
         double c = breakCost(level.getBlockState(p), p);
+        if (isWater(p.north()) || isWater(p.south()) || isWater(p.east()) || isWater(p.west())) c += 6;
         if (lavaLevel(p) == 1) c += lavaMarginCost;
         return c;
     }
