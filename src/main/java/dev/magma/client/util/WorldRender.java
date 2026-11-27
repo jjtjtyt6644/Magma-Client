@@ -143,10 +143,17 @@ public final class WorldRender {
         RenderSystem.applyModelViewMatrix();
         RenderSystem.backupProjectionMatrix();
         RenderSystem.setProjectionMatrix(event.getProjectionMatrix(), VertexSorting.DISTANCE_TO_ORIGIN);
+        // no fog: at this point of the frame the fog settings are whatever the sky/clouds/weather left behind,
+        // which made ores fade out or flash. X-Ray should always be fully visible.
+        float fogStart = RenderSystem.getShaderFogStart(), fogEnd = RenderSystem.getShaderFogEnd();
+        RenderSystem.setShaderFogStart(Float.MAX_VALUE);
+        RenderSystem.setShaderFogEnd(Float.MAX_VALUE);
         try {
             fn.accept(type -> new AlphaVertexConsumer(SOURCE.getBuffer(ORE), opacity));
         } finally {
             SOURCE.endBatch();
+            RenderSystem.setShaderFogStart(fogStart);
+            RenderSystem.setShaderFogEnd(fogEnd);
             RenderSystem.restoreProjectionMatrix();
             mv.popMatrix();
             RenderSystem.applyModelViewMatrix();
@@ -162,11 +169,18 @@ public final class WorldRender {
         RenderSystem.applyModelViewMatrix();
         RenderSystem.backupProjectionMatrix();
         RenderSystem.setProjectionMatrix(event.getProjectionMatrix(), VertexSorting.DISTANCE_TO_ORIGIN);
+        // no fog: at this point of the frame the fog settings are whatever the sky/clouds/weather left behind,
+        // which made ores fade out or flash. X-Ray should always be fully visible.
+        float fogStart = RenderSystem.getShaderFogStart(), fogEnd = RenderSystem.getShaderFogEnd();
+        RenderSystem.setShaderFogStart(Float.MAX_VALUE);
+        RenderSystem.setShaderFogEnd(Float.MAX_VALUE);
         try {
             fn.accept(new Batch(cam));
         } finally {
             // always flush, even if something above threw, so nothing half-built lingers into the next frame
             SOURCE.endBatch();
+            RenderSystem.setShaderFogStart(fogStart);
+            RenderSystem.setShaderFogEnd(fogEnd);
             RenderSystem.restoreProjectionMatrix();
             mv.popMatrix();
             RenderSystem.applyModelViewMatrix();

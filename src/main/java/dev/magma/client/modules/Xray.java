@@ -230,7 +230,7 @@ public class Xray extends Module {
         float wave = pulse.get() ? (float) (0.5 + 0.5 * Math.sin(now / 320.0)) : 1f;
 
         // 1) real ore blocks, drawn over the world (depth cleared so walls don't hide them)
-        if (models.get()) renderOreModels(event, list.size() > 120 ? list.subList(0, 120) : list, cam, wave);
+        if (models.get()) renderOreModels(event, list, cam, wave); // all shown ores (Max Ores), not just the nearest 120
 
         // 2) glow / outline on top
         if (style.is("None") && fillAlpha.getInt() == 0 && !tracers.get()) return;
