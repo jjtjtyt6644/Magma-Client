@@ -148,12 +148,16 @@ public final class WorldRender {
         float fogStart = RenderSystem.getShaderFogStart(), fogEnd = RenderSystem.getShaderFogEnd();
         RenderSystem.setShaderFogStart(Float.MAX_VALUE);
         RenderSystem.setShaderFogEnd(Float.MAX_VALUE);
+        // NO_DEPTH_TEST ("always") doesn't switch depth testing off - it assumes it's already off. At this point
+        // Minecraft has it ON, so everything was still hidden behind walls. Switch it off ourselves.
+        RenderSystem.disableDepthTest();
         try {
             fn.accept(type -> new AlphaVertexConsumer(SOURCE.getBuffer(ORE), opacity));
         } finally {
             SOURCE.endBatch();
             RenderSystem.setShaderFogStart(fogStart);
             RenderSystem.setShaderFogEnd(fogEnd);
+            RenderSystem.enableDepthTest();
             RenderSystem.restoreProjectionMatrix();
             mv.popMatrix();
             RenderSystem.applyModelViewMatrix();
@@ -174,6 +178,9 @@ public final class WorldRender {
         float fogStart = RenderSystem.getShaderFogStart(), fogEnd = RenderSystem.getShaderFogEnd();
         RenderSystem.setShaderFogStart(Float.MAX_VALUE);
         RenderSystem.setShaderFogEnd(Float.MAX_VALUE);
+        // NO_DEPTH_TEST ("always") doesn't switch depth testing off - it assumes it's already off. At this point
+        // Minecraft has it ON, so everything was still hidden behind walls. Switch it off ourselves.
+        RenderSystem.disableDepthTest();
         try {
             fn.accept(new Batch(cam));
         } finally {
@@ -181,6 +188,7 @@ public final class WorldRender {
             SOURCE.endBatch();
             RenderSystem.setShaderFogStart(fogStart);
             RenderSystem.setShaderFogEnd(fogEnd);
+            RenderSystem.enableDepthTest();
             RenderSystem.restoreProjectionMatrix();
             mv.popMatrix();
             RenderSystem.applyModelViewMatrix();
