@@ -25,7 +25,7 @@ public final class Pathfinder {
     private static final int[][] DIAGONALS = {{1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
     private static final double INF = Double.MAX_VALUE;
     /** Weighted A*: greedier search so long tunnels through rock don't exhaust the node budget. */
-    private static final double H_WEIGHT = 2.0;
+    private static final double H_WEIGHT = 3.0;
 
     private final Level level;
     private final boolean strict;
@@ -399,7 +399,7 @@ public final class Pathfinder {
                         BlockPos land = side.below(k);
                         if (!passable(land) || isLava(land) || LavaUtil.touchesLava(level, land)) break;
                         if (solidFloor(land.below())) {
-                            out.add(new Move(land, 1.5 + k * 0.5 + c));
+                            out.add(new Move(land, 2 + k * 3.0 + c)); // dropping is a last resort: walking around wins
                             break;
                         }
                         if (isLava(land.below())) break;
@@ -435,7 +435,7 @@ public final class Pathfinder {
         BlockPos below = n.below();
         if (allowDig && !floorPlaced && !passable(below) && canBreakSafely(below) && solidFloor(below.below()) && !isLava(below.below())) {
             double c = cellCost(below);
-            if (c < INF) out.add(new Move(below, 3 + c));
+            if (c < INF) out.add(new Move(below, 14 + c)); // only when there's truly no way around
         }
         return out;
     }

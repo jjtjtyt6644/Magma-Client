@@ -119,6 +119,7 @@ public class AutoMiner extends Module {
     private Pathfinder.Job job;
     private BlockPos jobOre;
     private List<BlockPos> jobPartial;
+    private int planTicks;
     private Pathfinder.Job gotoJob;
     private int candIdx;
     private List<BlockPos> bestPath;
@@ -619,7 +620,7 @@ public class AutoMiner extends Module {
             for (BlockPos o : safe) if (o.distSqr(start) <= 36) near.add(o);
             if (!near.isEmpty()) safe = near;
             firstSafe = safe.isEmpty() ? null : safe.get(0);
-            int k = fast() ? 2 : candidates.getInt();
+            int k = fast() ? 1 : Math.min(2, candidates.getInt());
             cands = new ArrayList<>(safe.subList(0, Math.min(safe.size(), k)));
             candIdx = 0;
             bestPath = null;
@@ -627,9 +628,10 @@ public class AutoMiner extends Module {
             bestCost = Double.MAX_VALUE;
             job = null;
             jobPartial = null;
+            planTicks = 0;
         }
 
-        long deadline = System.nanoTime() + 8_000_000L;
+        long deadline = System.nanoTime() + 14_000_000L;
         while (true) {
             if (job == null) {
                 if (candIdx >= cands.size()) break;
@@ -645,6 +647,18 @@ public class AutoMiner extends Module {
             }
             long left = deadline - System.nanoTime();
             if (left <= 0 || !job.step(left)) {
+                // still planning after ~0.5 s: start walking the best part found so far, finish planning on the way
+                if (++planTicks >= 10 && bestPath == null) {
+                    List<BlockPos> part = job.partialResult();
+                    if (part != null && part.size() > 1) {
+                        cands = null;
+                        job = null;
+                        jobPartial = null;
+                        startPath(part, null);
+                        status = "Approaching ore";
+                        return;
+                    }
+                }
                 status = "Planning route" + (cands.size() > 1 ? " " + candIdx + "/" + cands.size() : "") + " (" + job.expanded() + ")";
                 return; // keep searching next tick
             }
@@ -964,8 +978,19 @@ public class AutoMiner extends Module {
         if (gotoJob == null) {
             Pathfinder p = newPf(effort.getInt() * 2);
             gotoJob = dist <= 48 ? p.startNear(start, t, gotoExactY ? 1 : 0) : p.startToward(start, t);
+            planTicks = 0;
         }
-        if (!gotoJob.step(8_000_000L)) {
+        if (!gotoJob.step(14_000_000L)) {
+            // still planning after ~0.5 s: walk what we have and keep planning from there
+            if (++planTicks >= 10) {
+                List<BlockPos> part = gotoJob.partialResult();
+                if (part != null && part.size() > 1) {
+                    gotoJob = null;
+                    startPath(part, null);
+                    status = "Goto: " + (int) dist + " blocks left";
+                    return;
+                }
+            }
             status = "Goto: planning (" + gotoJob.expanded() + ")";
             return; // keep searching next tick
         }
