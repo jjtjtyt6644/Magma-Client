@@ -77,6 +77,18 @@ public final class EditorServer {
         server.createContext("/api/palette", EditorServer::palette);
         server.createContext("/api/save", EditorServer::save);
         server.createContext("/api/fetch", EditorServer::fetch);
+        server.createContext("/api/schematics", EditorServer::listSchematics);
+        server.createContext("/api/schematic", EditorServer::schematic);
+        server.createContext("/three.module.min.js", ex -> {
+            try (InputStream in = EditorServer.class.getResourceAsStream("/assets/magmaclient/editor/three.module.min.js")) {
+                if (in == null) { send(ex, 404, "text/plain", "missing".getBytes()); return; }
+                ex.getResponseHeaders().set("Cache-Control", "max-age=86400");
+                byte[] b = in.readAllBytes();
+                ex.getResponseHeaders().set("Content-Type", "text/javascript");
+                ex.sendResponseHeaders(200, b.length);
+                try (OutputStream os = ex.getResponseBody()) { os.write(b); }
+            }
+        });
         server.setExecutor(Executors.newFixedThreadPool(2, r -> {
             Thread t = new Thread(r, "Magma-Editor");
             t.setDaemon(true);
@@ -163,6 +175,100 @@ public final class EditorServer {
         } catch (Exception e) {
             send(ex, 400, "text/plain", String.valueOf(e.getMessage()).getBytes(StandardCharsets.UTF_8));
         }
+    }
+
+    /** GET /api/schematics : the files in the schematics folder(s). */
+    private static void listSchematics(HttpExchange ex) throws IOException {
+        JsonArray arr = new JsonArray();
+        for (Path p : Schematic.list()) arr.add(p.getFileName().toString());
+        send(ex, 200, "application/json", arr.toString().getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** GET /api/schematic?name=... : a schematic as voxels, with a texture for every block in it (for the 3D editor). */
+    private static void schematic(HttpExchange ex) throws IOException {
+        try {
+            String q = ex.getRequestURI().getRawQuery();
+            if (q == null || !q.startsWith("name=")) throw new IOException("no name");
+            String name = java.net.URLDecoder.decode(q.substring(5), StandardCharsets.UTF_8);
+            Path file = Schematic.find(name);
+            if (file == null) throw new IOException("no schematic called " + name);
+            Schematic sc = Schematic.load(file);
+            String json = Minecraft.getInstance().submit(() -> {
+                JsonObject o = new JsonObject();
+                o.addProperty("name", sc.name);
+                Map<BlockState, Integer> idx = new LinkedHashMap<>();
+                JsonArray pal = new JsonArray(), blocks = new JsonArray();
+                for (Map.Entry<BlockPos, BlockState> e : sc.blocks.entrySet()) {
+                    BlockState st = e.getValue();
+                    if (st.isAir()) continue;
+                    Integer i = idx.get(st);
+                    if (i == null) {
+                        i = idx.size();
+                        idx.put(st, i);
+                        pal.add(describe(st));
+                    }
+                    BlockPos p = e.getKey();
+                    blocks.add(p.getX()); blocks.add(p.getY()); blocks.add(p.getZ()); blocks.add(i);
+                }
+                o.add("palette", pal);
+                o.add("blocks", blocks); // flat: x, y, z, palette index
+                return o.toString();
+            }).get();
+            send(ex, 200, "application/json", json.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            send(ex, 400, "text/plain", ("couldn't open it: " + e.getMessage()).getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
+    private static final Map<Block, JsonObject> TEX_CACHE = new java.util.HashMap<>();
+
+    /** state string, block id, name, average colour and front texture of any block (game thread only). */
+    private static JsonObject describe(BlockState s) {
+        JsonObject o = new JsonObject();
+        o.addProperty("state", net.minecraft.commands.arguments.blocks.BlockStateParser.serialize(s));
+        ResourceLocation id = BuiltInRegistries.BLOCK.getKey(s.getBlock());
+        o.addProperty("id", id.toString());
+        o.addProperty("name", s.getBlock().getName().getString());
+        JsonObject t = TEX_CACHE.computeIfAbsent(s.getBlock(), b -> texture(b.defaultBlockState()));
+        o.add("rgb", t.get("rgb"));
+        o.addProperty("tex", t.get("tex").getAsString());
+        return o;
+    }
+
+    /** {rgb, tex} for a block's front face; a grey square when it has no usable texture. */
+    private static JsonObject texture(BlockState s) {
+        JsonObject o = new JsonObject();
+        try {
+            Minecraft mc = Minecraft.getInstance();
+            var model = mc.getBlockRenderer().getBlockModel(s);
+            List<BakedQuad> quads = model.getQuads(s, Direction.NORTH, RandomSource.create(0));
+            if (quads.isEmpty()) quads = model.getQuads(s, null, RandomSource.create(0));
+            TextureAtlasSprite sprite = quads.isEmpty() ? model.getParticleIcon() : quads.get(0).getSprite();
+            ResourceLocation tex = sprite.contents().name();
+            var res = mc.getResourceManager().getResource(ResourceLocation.fromNamespaceAndPath(tex.getNamespace(), "textures/" + tex.getPath() + ".png"));
+            if (res.isPresent()) {
+                try (InputStream in = res.get().open(); NativeImage img = NativeImage.read(in);
+                     NativeImage frame = new NativeImage(img.getWidth(), img.getWidth(), false)) {
+                    long r = 0, g = 0, b = 0, n = 0;
+                    for (int y = 0; y < frame.getHeight(); y++) for (int x = 0; x < frame.getWidth(); x++) {
+                        int abgr = img.getPixelRGBA(x, Math.min(y, img.getHeight() - 1));
+                        frame.setPixelRGBA(x, y, abgr);
+                        if ((abgr >>> 24) < 128) continue;
+                        r += abgr & 0xFF; g += (abgr >> 8) & 0xFF; b += (abgr >> 16) & 0xFF; n++;
+                    }
+                    JsonArray rgb = new JsonArray();
+                    rgb.add(n == 0 ? 128 : (int) (r / n)); rgb.add(n == 0 ? 128 : (int) (g / n)); rgb.add(n == 0 ? 128 : (int) (b / n));
+                    o.add("rgb", rgb);
+                    o.addProperty("tex", "data:image/png;base64," + Base64.getEncoder().encodeToString(frame.asByteArray()));
+                    return o;
+                }
+            }
+        } catch (Exception ignored) {}
+        JsonArray rgb = new JsonArray();
+        rgb.add(128); rgb.add(128); rgb.add(128);
+        o.add("rgb", rgb);
+        o.addProperty("tex", "");
+        return o;
     }
 
     private static void send(HttpExchange ex, int code, String type, byte[] body) throws IOException {
@@ -253,6 +359,7 @@ public final class EditorServer {
                 if (quads.stream().anyMatch(BakedQuad::isTinted)) continue;
                 JsonObject o = new JsonObject();
                 o.addProperty("id", id.toString());
+                o.addProperty("state", id.toString());
                 o.addProperty("name", b.getName().getString());
                 JsonArray rgb = new JsonArray();
                 for (int c : avg) rgb.add(c);

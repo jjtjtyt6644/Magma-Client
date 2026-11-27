@@ -94,6 +94,7 @@ public class Base extends Module {
         }
         Chat.info("Heading home to " + t.toShortString() + dimensionNote() + ".");
         ModuleManager.get(AutoMiner.class).startGoto(t, true, false, false);
+        ModuleManager.get(AutoMiner.class).tripLabel = "Going home";
     }
 
     @Override

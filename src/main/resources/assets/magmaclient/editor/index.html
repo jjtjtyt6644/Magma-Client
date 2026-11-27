@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Magma Image Converter</title>
+<title>Magma Builder Studio</title>
 <style>
 :root{--bg:#0b0c10;--panel:#12141a;--panel2:#181b22;--line:#252a33;--text:#eceff4;--muted:#8a93a3;--accent:#ff7a1a;--accent2:#ffb067;--ok:#4caf50;--err:#ff5252;color-scheme:dark}
 *{box-sizing:border-box}
@@ -78,6 +78,24 @@ kbd{font-size:10px;color:#6c7483;border:1px solid #333a45;border-radius:4px;padd
 .loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg);z-index:9;flex-direction:column;gap:12px;color:var(--muted)}
 .spin{width:28px;height:28px;border:3px solid #333;border-top-color:var(--accent);border-radius:50%;animation:s 0.8s linear infinite}
 @keyframes s{to{transform:rotate(360deg)}}
+.tabs{display:flex;gap:4px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:3px;margin-left:18px}
+.tabs button{border:0;background:none;color:var(--muted);padding:6px 14px;border-radius:7px;cursor:pointer;font-weight:600}
+.tabs button.on{background:#2a2f3a;color:var(--text)}
+#main3d{position:relative;overflow:hidden;background:#000;display:none}
+#c3d{position:absolute;inset:0;width:100%;height:100%;display:block}
+.hotbar{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);display:flex;gap:3px;background:rgba(0,0,0,.55);padding:4px;border-radius:6px;border:2px solid rgba(255,255,255,.15)}
+.hotbar .s{width:40px;height:40px;border:2px solid transparent;border-radius:3px;position:relative;cursor:pointer}
+.hotbar .s img{width:100%;height:100%;image-rendering:pixelated;display:block}
+.hotbar .s.on{border-color:#fff;box-shadow:0 0 0 2px rgba(0,0,0,.6)}
+.hotbar .s span{position:absolute;left:2px;top:0;font-size:10px;color:#fff;text-shadow:0 1px 2px #000}
+.cross{position:absolute;left:50%;top:50%;width:18px;height:18px;margin:-9px 0 0 -9px;display:none;pointer-events:none}
+.cross:before,.cross:after{content:"";position:absolute;background:#fff;mix-blend-mode:difference}
+.cross:before{left:8px;top:0;width:2px;height:18px}.cross:after{top:8px;left:0;width:18px;height:2px}
+.help3d{position:absolute;top:12px;left:12px;background:rgba(18,20,26,.85);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;color:var(--muted);line-height:1.6;pointer-events:none}
+.help3d b{color:var(--text);font-weight:600}
+.blockname{position:absolute;bottom:72px;left:50%;transform:translateX(-50%);color:#fff;text-shadow:0 1px 3px #000;font-weight:600;pointer-events:none;transition:opacity .3s}
+#left3d{display:none}
+select.search{appearance:auto}
 @media (max-width:1000px){.app{grid-template-columns:260px 1fr}aside.right{display:none}}
 </style>
 </head>
@@ -85,7 +103,8 @@ kbd{font-size:10px;color:#6c7483;border:1px solid #333a45;border-radius:4px;padd
 <div class="loading" id="loading"><div class="spin"></div><div>Loading block textures from your game…</div></div>
 <div class="app">
   <header>
-    <div class="logo">🔥 <span><b>Magma</b> Image Converter</span></div>
+    <div class="logo">🔥 <span><b>Magma</b> Builder Studio</span></div>
+    <div class="tabs"><button id="tab2d" class="on">🖼 Picture</button><button id="tab3d">🧱 3D Editor</button></div>
     <div class="spacer"></div>
     <input class="name" id="name" placeholder="Name" value="my_build" spellcheck="false">
     <button class="btn" id="download" disabled title="Save a .schem file">Download .schem</button>
@@ -145,6 +164,35 @@ kbd{font-size:10px;color:#6c7483;border:1px solid #333a45;border-radius:4px;padd
     </div>
     <div class="status" id="status">Scroll to zoom · Right-drag to move · Alt+click picks a block</div>
     <div class="tip" id="tip"></div>
+  </main>
+
+  <aside class="left" id="left3d">
+    <div class="step">
+      <h3>Open</h3>
+      <div class="row"><select class="search" id="schemList"><option value="">Schematics in your game…</option></select></div>
+      <div class="row"><button class="btn" id="openSchem" style="flex:1">Open</button><button class="btn" id="fromPic" style="flex:1" title="Turn the picture from the Picture tab into blocks">From picture</button></div>
+      <div class="row"><button class="btn" id="new3d" style="flex:1">New empty</button></div>
+    </div>
+    <div class="step">
+      <h3>View</h3>
+      <button class="btn primary" id="flyBtn" style="width:100%">✈ Fly around (like Minecraft)</button>
+      <div class="row"><button class="btn" id="resetView" style="flex:1">Reset view</button></div>
+      <div class="row"><label>Show layers up to</label><span class="hint" id="layerV">all</span></div>
+      <input type="range" id="layer" min="0" max="64" value="64" style="width:100%">
+      <div class="hint">Slide down to see inside a house and edit lower floors.</div>
+    </div>
+    <div class="step">
+      <h3>Size</h3>
+      <div class="hint" id="info3d">empty</div>
+    </div>
+  </aside>
+
+  <main id="main3d">
+    <canvas id="c3d"></canvas>
+    <div class="cross" id="cross"></div>
+    <div class="help3d" id="help3d"><b>Left-click</b> place · <b>Right-click</b> break · <b>Middle-click</b> pick<br><b>Right-drag</b> spin · <b>Shift+right-drag</b> move · <b>Scroll</b> zoom<br><b>1-9</b> hotbar · <b>Ctrl+Z</b> undo · <b>Fly</b>: WASD, Space/Shift, Esc to stop</div>
+    <div class="blockname" id="blockname"></div>
+    <div class="hotbar" id="hotbar"></div>
   </main>
 
   <aside class="right">
@@ -263,6 +311,7 @@ function buildPalette() {
 
 function setCur(i) {
   cur = i;
+  if (window.onBlockChosen) window.onBlockChosen(i);
   const p = PAL[i];
   $("curImg").src = p.tex;
   $("curName").textContent = p.name;
@@ -644,7 +693,9 @@ function exportData() {
 function cleanName() { return ($("name").value.replace(/[^A-Za-z0-9_\- ]/g, "").trim() || "my_build"); }
 
 $("send").onclick = async () => {
-  const body = Object.assign({name: cleanName(), load: true}, exportData());
+  const ex = window.mode3d ? window.export3d() : exportData();
+  if (!ex) { toast("Nothing to send yet - place some blocks first.", "err"); return; }
+  const body = Object.assign({name: cleanName(), load: true}, ex);
   $("send").disabled = true;
   try {
     const r = await fetch("/api/save", {method: "POST", headers: {"Content-Type": "application/json", "X-Magma": "1"}, body: JSON.stringify(body)});
@@ -657,7 +708,8 @@ $("send").onclick = async () => {
 };
 
 $("download").onclick = async () => {
-  const e = exportData();
+  const e = window.mode3d ? window.export3d() : exportData();
+  if (!e) { toast("Nothing to save yet.", "err"); return; }
   const blob = await schemBlob(e);
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -701,7 +753,484 @@ function toast(msg, kind) {
   toastTimer = setTimeout(() => t.className = "toast", kind === "err" ? 6000 : 4200);
 }
 
+window.get2d = () => grid ? {W, H, grid, orient} : null;
+window.has2d = () => !!grid;
 init();
 </script>
+<script type="module">
+import * as THREE from "/three.module.min.js";
+const $ = id => document.getElementById(id);
+
+// ---------------------------------------------------------------- data
+const P3 = [];                 // 3D palette: {state,id,name,tex,rgb}
+const stateIdx = new Map();
+function addPal(e) {
+  let i = stateIdx.get(e.state);
+  if (i === undefined) { i = P3.length; P3.push(e); stateIdx.set(e.state, i); }
+  return i;
+}
+function syncPal() { // the picture palette comes first, so PAL index == P3 index for those
+  if (P3.length >= PAL.length) return;
+  PAL.forEach(p => addPal({state: p.state || p.id, id: p.id, name: p.name, tex: p.tex, rgb: p.rgb}));
+}
+const vox = new Map();          // "x,y,z" -> palette index
+const key = (x, y, z) => x + "," + y + "," + z;
+let hotbar = [], slot = 0;
+let undoS = [], redoS = [];
+let maxLayer = Infinity;
+
+// ---------------------------------------------------------------- three.js scene
+const canvas = $("c3d");
+const renderer = new THREE.WebGLRenderer({canvas, antialias: true});
+renderer.setPixelRatio(Math.min(2, devicePixelRatio));
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x8fb8ff);
+scene.fog = new THREE.Fog(0x8fb8ff, 120, 400);
+const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 1000);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8899aa, 1.1));
+const sun = new THREE.DirectionalLight(0xffffff, 1.0);
+sun.position.set(0.6, 1, 0.35);
+scene.add(sun);
+const box = new THREE.BoxGeometry(1, 1, 1);
+const mats = new Map();
+const loader = new THREE.TextureLoader();
+function mat(i) {
+  if (mats.has(i)) return mats.get(i);
+  const p = P3[i];
+  let m;
+  if (p.tex) {
+    const t = loader.load(p.tex);
+    t.magFilter = THREE.NearestFilter;
+    t.minFilter = THREE.NearestFilter;
+    t.colorSpace = THREE.SRGBColorSpace;
+    m = new THREE.MeshLambertMaterial({map: t});
+  } else m = new THREE.MeshLambertMaterial({color: new THREE.Color(`rgb(${p.rgb.join(",")})`)});
+  mats.set(i, m);
+  return m;
+}
+let meshes = [];
+const grid = new THREE.GridHelper(64, 64, 0x445566, 0x334455);
+grid.material.opacity = 0.5; grid.material.transparent = true;
+scene.add(grid);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), new THREE.MeshBasicMaterial({visible: false}));
+ground.rotation.x = -Math.PI / 2;
+scene.add(ground);
+const outline = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1.01, 1.01, 1.01)),
+  new THREE.LineBasicMaterial({color: 0x000000, transparent: true, opacity: 0.8}));
+outline.visible = false;
+scene.add(outline);
+
+let dirty = true;
+function rebuild() {
+  for (const m of meshes) { scene.remove(m); m.dispose(); }
+  meshes = [];
+  const groups = new Map();
+  for (const [k, i] of vox) {
+    const [x, y, z] = k.split(",").map(Number);
+    if (y > maxLayer) continue;
+    // fully hidden inside other blocks: never seen, don't draw
+    if (y < maxLayer && vox.has(key(x + 1, y, z)) && vox.has(key(x - 1, y, z)) && vox.has(key(x, y + 1, z))
+        && vox.has(key(x, y - 1, z)) && vox.has(key(x, y, z + 1)) && vox.has(key(x, y, z - 1))) continue;
+    if (!groups.has(i)) groups.set(i, []);
+    groups.get(i).push(x, y, z);
+  }
+  const m4 = new THREE.Matrix4();
+  for (const [i, arr] of groups) {
+    const n = arr.length / 3;
+    const im = new THREE.InstancedMesh(box, mat(i), n);
+    for (let j = 0; j < n; j++) im.setMatrixAt(j, m4.makeTranslation(arr[j * 3] + 0.5, arr[j * 3 + 1] + 0.5, arr[j * 3 + 2] + 0.5));
+    im.instanceMatrix.needsUpdate = true;
+    im.userData.pos = arr;
+    scene.add(im);
+    meshes.push(im);
+  }
+  dirty = false;
+  info();
+}
+
+// ---------------------------------------------------------------- camera (orbit + fly)
+const orbit = {tx: 8, ty: 4, tz: 8, yaw: 0.8, pitch: 0.55, dist: 30};
+let flying = false;
+const fly = {x: 0, y: 10, z: 0, yaw: 0, pitch: 0};
+const keys = new Set();
+function bounds() {
+  if (!vox.size) return {minX: 0, minY: 0, minZ: 0, maxX: 15, maxY: 7, maxZ: 15};
+  const b = {minX: Infinity, minY: Infinity, minZ: Infinity, maxX: -Infinity, maxY: -Infinity, maxZ: -Infinity};
+  for (const k of vox.keys()) {
+    const [x, y, z] = k.split(",").map(Number);
+    b.minX = Math.min(b.minX, x); b.minY = Math.min(b.minY, y); b.minZ = Math.min(b.minZ, z);
+    b.maxX = Math.max(b.maxX, x); b.maxY = Math.max(b.maxY, y); b.maxZ = Math.max(b.maxZ, z);
+  }
+  return b;
+}
+function resetView() {
+  const b = bounds();
+  orbit.tx = (b.minX + b.maxX + 1) / 2; orbit.ty = (b.minY + b.maxY + 1) / 2; orbit.tz = (b.minZ + b.maxZ + 1) / 2;
+  orbit.dist = Math.max(12, Math.max(b.maxX - b.minX, b.maxY - b.minY, b.maxZ - b.minZ) * 1.6);
+  orbit.yaw = 0.8; orbit.pitch = 0.5;
+  grid.position.set(Math.round(orbit.tx), 0, Math.round(orbit.tz));
+}
+function placeCamera() {
+  if (flying) {
+    camera.position.set(fly.x, fly.y, fly.z);
+    camera.rotation.set(fly.pitch, fly.yaw, 0, "YXZ");
+  } else {
+    const cp = Math.cos(orbit.pitch);
+    camera.position.set(orbit.tx + Math.sin(orbit.yaw) * cp * orbit.dist, orbit.ty + Math.sin(orbit.pitch) * orbit.dist,
+      orbit.tz + Math.cos(orbit.yaw) * cp * orbit.dist);
+    camera.lookAt(orbit.tx, orbit.ty, orbit.tz);
+  }
+}
+
+// ---------------------------------------------------------------- picking
+const ray = new THREE.Raycaster();
+const ndc = new THREE.Vector2();
+let target = null; // {hit:[x,y,z]|null, place:[x,y,z]}
+function pick(clientX, clientY) {
+  if (flying) ndc.set(0, 0);
+  else {
+    const r = canvas.getBoundingClientRect();
+    ndc.set(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
+  }
+  ray.setFromCamera(ndc, camera);
+  ray.far = flying ? 30 : 2000;
+  const hits = ray.intersectObjects([...meshes, ground], false);
+  if (!hits.length) return null;
+  const h = hits[0];
+  if (h.object === ground) {
+    const x = Math.floor(h.point.x), z = Math.floor(h.point.z);
+    return {hit: null, place: [x, 0, z]};
+  }
+  const a = h.object.userData.pos, j = h.instanceId;
+  const p = [a[j * 3], a[j * 3 + 1], a[j * 3 + 2]];
+  const n = h.face.normal;
+  return {hit: p, place: [p[0] + Math.round(n.x), p[1] + Math.round(n.y), p[2] + Math.round(n.z)]};
+}
+function showTarget() {
+  if (target && target.hit) { outline.visible = true; outline.position.set(target.hit[0] + 0.5, target.hit[1] + 0.5, target.hit[2] + 0.5); }
+  else if (target) { outline.visible = true; outline.position.set(target.place[0] + 0.5, target.place[1] + 0.5, target.place[2] + 0.5); }
+  else outline.visible = false;
+}
+
+// ---------------------------------------------------------------- editing
+function set(x, y, z, v, ops) {
+  const k = key(x, y, z), before = vox.has(k) ? vox.get(k) : -1;
+  if (before === v) return;
+  if (v < 0) vox.delete(k); else vox.set(k, v);
+  ops.push([k, before, v]);
+}
+function commit(ops) {
+  if (!ops.length) return;
+  undoS.push(ops);
+  if (undoS.length > 200) undoS.shift();
+  redoS = [];
+  dirty = true;
+}
+function applyOps(ops, back) {
+  for (const [k, b, a] of (back ? ops.slice().reverse() : ops)) {
+    const v = back ? b : a;
+    if (v < 0) vox.delete(k); else vox.set(k, v);
+  }
+  dirty = true;
+}
+function undo3() { const o = undoS.pop(); if (o) { applyOps(o, true); redoS.push(o); } }
+function redo3() { const o = redoS.pop(); if (o) { applyOps(o, false); undoS.push(o); } }
+function placeBlock() {
+  if (!target || hotbar[slot] === undefined) return;
+  const [x, y, z] = target.place;
+  if (y < 0) return;
+  const ops = [];
+  set(x, y, z, hotbar[slot], ops);
+  commit(ops);
+}
+function breakBlock() {
+  if (!target || !target.hit) return;
+  const ops = [];
+  set(...target.hit, -1, ops);
+  commit(ops);
+}
+function pickBlock() {
+  if (!target || !target.hit) return;
+  const i = vox.get(key(...target.hit));
+  if (i === undefined) return;
+  const at = hotbar.indexOf(i);
+  if (at >= 0) slot = at; else hotbar[slot] = i;
+  drawHotbar();
+}
+
+// ---------------------------------------------------------------- hotbar
+function drawHotbar() {
+  const hb = $("hotbar");
+  hb.innerHTML = "";
+  for (let s = 0; s < 9; s++) {
+    const d = document.createElement("div");
+    d.className = "s" + (s === slot ? " on" : "");
+    const i = hotbar[s];
+    if (i !== undefined && P3[i]) { const im = document.createElement("img"); im.src = P3[i].tex; d.appendChild(im); d.title = P3[i].name; }
+    d.insertAdjacentHTML("beforeend", "<span>" + (s + 1) + "</span>");
+    d.onclick = () => { slot = s; drawHotbar(); };
+    hb.appendChild(d);
+  }
+  const bn = $("blockname"), i = hotbar[slot];
+  bn.textContent = i !== undefined && P3[i] ? P3[i].name : "";
+  bn.style.opacity = 1;
+  clearTimeout(drawHotbar.t);
+  drawHotbar.t = setTimeout(() => bn.style.opacity = 0, 1500);
+}
+window.onBlockChosen = i => { if (!window.mode3d) return; syncPal(); hotbar[slot] = i; drawHotbar(); };
+
+// ---------------------------------------------------------------- info / materials
+function info() {
+  const b = bounds();
+  $("info3d").textContent = vox.size ? `${b.maxX - b.minX + 1} × ${b.maxY - b.minY + 1} × ${b.maxZ - b.minZ + 1} · ${vox.size} blocks` : "empty - left-click the grid to place blocks";
+  const top = vox.size ? b.maxY : 16;
+  const L = $("layer");
+  const wasAll = maxLayer === Infinity;
+  L.max = Math.max(1, top);
+  if (wasAll) L.value = L.max;
+  $("send").disabled = $("download").disabled = vox.size === 0;
+  if (!window.mode3d) return;
+  // count per block type (all the facings of a stair are one material)
+  const count = new Map(), first = new Map();
+  for (const i of vox.values()) { const id = P3[i].id; count.set(id, (count.get(id) || 0) + 1); if (!first.has(id)) first.set(id, i); }
+  $("total").textContent = "· " + vox.size + " blocks";
+  const box = $("used");
+  box.innerHTML = "";
+  [...count.entries()].sort((a, b) => b[1] - a[1]).forEach(([id, n]) => {
+    const i = first.get(id);
+    const d = document.createElement("div");
+    d.className = "u";
+    d.title = "Click: replace all with the block in your hand";
+    const st = Math.floor(n / 64), rest = n % 64;
+    d.innerHTML = `<img src="${P3[i].tex}"><span>${P3[i].name}</span><span class="c">${n}${st ? ` (${st}×64${rest ? "+" + rest : ""})` : ""}</span>`;
+    d.onclick = () => {
+      const to = hotbar[slot];
+      if (to === undefined || to === i) return;
+      const ops = [];
+      for (const [k, v] of vox) if (P3[v].id === id) { const [x, y, z] = k.split(",").map(Number); set(x, y, z, to, ops); }
+      commit(ops);
+      toast("Swapped " + P3[i].name + " for " + P3[to].name + ".", "ok");
+    };
+    box.appendChild(d);
+  });
+}
+
+// ---------------------------------------------------------------- loading things in
+function clearAll() { vox.clear(); undoS = []; redoS = []; maxLayer = Infinity; dirty = true; }
+async function listSchematics() {
+  try {
+    const l = await (await fetch("/api/schematics")).json();
+    const sel = $("schemList");
+    sel.innerHTML = '<option value="">' + (l.length ? "Schematics in your game…" : "No schematics yet") + "</option>";
+    for (const n of l) sel.insertAdjacentHTML("beforeend", `<option>${n.replace(/[<&]/g, "")}</option>`);
+  } catch (e) {}
+}
+$("openSchem").onclick = async () => {
+  const n = $("schemList").value;
+  if (!n) { toast("Pick a schematic from the list first."); return; }
+  toast("Opening " + n + "…");
+  try {
+    const r = await fetch("/api/schematic?name=" + encodeURIComponent(n));
+    if (!r.ok) throw new Error(await r.text());
+    const j = await r.json();
+    syncPal();
+    const map = j.palette.map(p => addPal(p));
+    clearAll();
+    for (let k = 0; k < j.blocks.length; k += 4) vox.set(key(j.blocks[k], j.blocks[k + 1], j.blocks[k + 2]), map[j.blocks[k + 3]]);
+    $("name").value = j.name;
+    resetView(); rebuild();
+    toast("Opened " + j.name + " - " + vox.size + " blocks.", "ok");
+  } catch (e) { toast("Couldn't open it: " + e.message, "err"); }
+};
+$("fromPic").onclick = () => {
+  if (typeof grid2d === "undefined") return;
+  const g = window.get2d();
+  if (!g) { toast("Make a picture in the Picture tab first."); return; }
+  syncPal();
+  clearAll();
+  for (let y = 0; y < g.H; y++) for (let x = 0; x < g.W; x++) {
+    const i = g.grid[y * g.W + x];
+    if (i < 0) continue;
+    if (g.orient === "wall") vox.set(key(x, g.H - 1 - y, 0), i); else vox.set(key(x, 0, y), i);
+  }
+  resetView(); rebuild();
+  toast("Picture turned into blocks - now add depth, a back, a roof...", "ok");
+};
+const grid2d = true;
+$("new3d").onclick = () => {
+  if (vox.size && !confirm("Clear everything and start empty?")) return;
+  clearAll(); resetView(); rebuild();
+};
+$("resetView").onclick = () => { setFlying(false); resetView(); };
+$("layer").oninput = () => {
+  const v = +$("layer").value;
+  maxLayer = v >= +$("layer").max ? Infinity : v;
+  $("layerV").textContent = maxLayer === Infinity ? "all" : "Y " + v;
+  dirty = true;
+};
+
+// ---------------------------------------------------------------- input
+let rdown = null, panMode = false;
+canvas.addEventListener("contextmenu", e => e.preventDefault());
+canvas.addEventListener("mousedown", e => {
+  if (flying) {
+    if (e.button === 0) breakBlock(); else if (e.button === 2) placeBlock(); else if (e.button === 1) pickBlock();
+    e.preventDefault();
+    return;
+  }
+  target = pick(e.clientX, e.clientY);
+  if (e.button === 0) placeBlock();
+  else if (e.button === 1) { pickBlock(); e.preventDefault(); }
+  else if (e.button === 2) { rdown = {x: e.clientX, y: e.clientY, moved: false}; panMode = e.shiftKey; }
+});
+window.addEventListener("mouseup", e => {
+  if (e.button === 2 && rdown && !rdown.moved && !flying) { target = pick(e.clientX, e.clientY); breakBlock(); }
+  if (e.button === 2) rdown = null;
+});
+canvas.addEventListener("mousemove", e => {
+  if (flying) {
+    fly.yaw -= e.movementX * 0.0025;
+    fly.pitch = Math.max(-1.55, Math.min(1.55, fly.pitch - e.movementY * 0.0025));
+    return;
+  }
+  if (rdown) {
+    const dx = e.clientX - rdown.x, dy = e.clientY - rdown.y;
+    if (Math.abs(dx) + Math.abs(dy) > 3) rdown.moved = true;
+    rdown.x = e.clientX; rdown.y = e.clientY;
+    if (panMode) {
+      const s = orbit.dist * 0.0015;
+      orbit.tx -= (Math.cos(orbit.yaw) * dx) * s; orbit.tz += (Math.sin(orbit.yaw) * dx) * s; orbit.ty += dy * s;
+    } else {
+      orbit.yaw -= dx * 0.008;
+      orbit.pitch = Math.max(-1.45, Math.min(1.45, orbit.pitch + dy * 0.008));
+    }
+  }
+  target = pick(e.clientX, e.clientY);
+  showTarget();
+});
+canvas.addEventListener("wheel", e => {
+  e.preventDefault();
+  if (flying) { slot = (slot + (e.deltaY > 0 ? 1 : 8)) % 9; drawHotbar(); return; }
+  orbit.dist = Math.max(3, Math.min(600, orbit.dist * (e.deltaY > 0 ? 1.12 : 1 / 1.12)));
+}, {passive: false});
+window.addEventListener("keydown", e => {
+  if (!window.mode3d || e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+  keys.add(e.code);
+  const k = e.key.toLowerCase();
+  if (/^[1-9]$/.test(e.key)) { slot = +e.key - 1; drawHotbar(); }
+  else if ((e.ctrlKey || e.metaKey) && k === "z") { e.preventDefault(); e.stopImmediatePropagation(); e.shiftKey ? redo3() : undo3(); }
+  else if ((e.ctrlKey || e.metaKey) && k === "y") { e.preventDefault(); e.stopImmediatePropagation(); redo3(); }
+  if (flying && (e.code === "Space")) e.preventDefault();
+}, true);
+window.addEventListener("keyup", e => keys.delete(e.code));
+function setFlying(on) {
+  if (on === flying) return;
+  if (on) {
+    // start where the orbit camera is, looking the same way
+    fly.x = camera.position.x; fly.y = camera.position.y; fly.z = camera.position.z;
+    fly.yaw = orbit.yaw; fly.pitch = -orbit.pitch;
+  } else {
+    // keep orbiting around the spot in front of where you flew
+    const dir = new THREE.Vector3(0, 0, -1).applyEuler(camera.rotation);
+    orbit.tx = fly.x + dir.x * 10; orbit.ty = fly.y + dir.y * 10; orbit.tz = fly.z + dir.z * 10;
+    orbit.dist = 10; orbit.yaw = fly.yaw; orbit.pitch = -fly.pitch;
+    if (document.pointerLockElement === canvas) document.exitPointerLock();
+  }
+  flying = on;
+  $("cross").style.display = flying ? "block" : "none";
+  $("flyBtn").textContent = flying ? "■ Stop flying (Esc)" : "✈ Fly around (like Minecraft)";
+  $("help3d").innerHTML = flying
+    ? "<b>Flying</b> · WASD move · Space up · Shift down · Ctrl faster · mouse to look<br><b>Left-click</b> break · <b>Right-click</b> place · <b>Middle</b> pick · <b>Scroll/1-9</b> hotbar · <b>Esc</b> stop"
+    : "<b>Left-click</b> place · <b>Right-click</b> break · <b>Middle-click</b> pick<br><b>Right-drag</b> spin · <b>Shift+right-drag</b> move · <b>Scroll</b> zoom<br><b>1-9</b> hotbar · <b>Ctrl+Z</b> undo · <b>Fly</b> button: walk around like Minecraft";
+}
+$("flyBtn").onclick = () => {
+  if (flying) { setFlying(false); return; }
+  setFlying(true);
+  try { const p = canvas.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) {}
+  canvas.focus();
+};
+let hadLock = false;
+document.addEventListener("pointerlockchange", () => {
+  const locked = document.pointerLockElement === canvas;
+  if (hadLock && !locked) setFlying(false); // Esc released the mouse
+  hadLock = locked;
+});
+canvas.addEventListener("click", () => { // clicking the view while flying grabs the mouse again
+  if (flying && document.pointerLockElement !== canvas) { try { const p = canvas.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) {} }
+});
+window.addEventListener("keydown", e => { if (e.key === "Escape" && flying) setFlying(false); });
+
+// ---------------------------------------------------------------- loop
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  if (window.mode3d) {
+    if (flying) {
+      const sp = (keys.has("ControlLeft") ? 22 : 10) * dt;
+      const f = (keys.has("KeyW") ? 1 : 0) - (keys.has("KeyS") ? 1 : 0), r = (keys.has("KeyD") ? 1 : 0) - (keys.has("KeyA") ? 1 : 0);
+      fly.x += (-Math.sin(fly.yaw) * f + Math.cos(fly.yaw) * r) * sp;
+      fly.z += (-Math.cos(fly.yaw) * f - Math.sin(fly.yaw) * r) * sp;
+      fly.y += ((keys.has("Space") ? 1 : 0) - (keys.has("ShiftLeft") || keys.has("ShiftRight") ? 1 : 0)) * sp;
+    }
+    if (dirty) rebuild();
+    placeCamera();
+    if (flying) { target = pick(); showTarget(); }
+    renderer.render(scene, camera);
+  }
+  requestAnimationFrame(frame);
+}
+function size3d() {
+  const r = $("main3d").getBoundingClientRect();
+  if (!r.width) return;
+  renderer.setSize(r.width, r.height, false);
+  camera.aspect = r.width / r.height;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener("resize", size3d);
+requestAnimationFrame(frame);
+
+// ---------------------------------------------------------------- export + tabs
+window.export3d = () => {
+  if (!vox.size) return null;
+  const b = bounds(), w = b.maxX - b.minX + 1, h = b.maxY - b.minY + 1, d = b.maxZ - b.minZ + 1;
+  const ids = ["minecraft:air"], map = new Map();
+  const data = new Array(w * h * d).fill(0);
+  for (const [k, i] of vox) {
+    const [x, y, z] = k.split(",").map(Number);
+    if (!map.has(i)) { map.set(i, ids.length); ids.push(P3[i].state); }
+    data[(x - b.minX) + (z - b.minZ) * w + (y - b.minY) * w * d] = map.get(i);
+  }
+  return {w, h, d, palette: ids, data};
+};
+function setMode(m3) {
+  window.mode3d = m3;
+  $("tab2d").classList.toggle("on", !m3);
+  $("tab3d").classList.toggle("on", m3);
+  document.querySelector("aside.left:not(#left3d)").style.display = m3 ? "none" : "";
+  $("main").style.display = m3 ? "none" : "";
+  $("left3d").style.display = m3 ? "block" : "none";
+  $("main3d").style.display = m3 ? "block" : "none";
+  if (m3) {
+    syncPal();
+    if (!hotbar.length) {
+      const pickIds = ["minecraft:oak_planks", "minecraft:stone_bricks", "minecraft:cobblestone", "minecraft:oak_log",
+        "minecraft:white_concrete", "minecraft:bricks", "minecraft:glass", "minecraft:spruce_planks", "minecraft:smooth_stone"];
+      hotbar = pickIds.map(id => stateIdx.get(id)).filter(i => i !== undefined);
+      while (hotbar.length < 9) hotbar.push(hotbar.length % Math.max(1, P3.length));
+    }
+    listSchematics();
+    size3d();
+    if (!vox.size) resetView();
+    drawHotbar();
+    info();
+  } else {
+    if (typeof stats === "function") { stats(); $("send").disabled = $("download").disabled = !window.has2d(); }
+  }
+}
+$("tab2d").onclick = () => setMode(false);
+$("tab3d").onclick = () => setMode(true);
+</script>
+
 </body>
 </html>

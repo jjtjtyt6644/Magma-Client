@@ -60,6 +60,7 @@ public class Builder extends Module {
     public final TextSetting file = add(new TextSetting("Schematic", "File name in .minecraft/schematics (type .build list to see them).", "", null, 64));
     public final ModeSetting rotation = add(new ModeSetting("Rotation", "Turn the build around.", "0", "0", "90", "180", "270"));
     public final BoolSetting clearExtra = add(new BoolSetting("Clear Extra Blocks", "Also mine blocks standing where the schematic has air.", false));
+    public final BoolSetting airPlace = add(new BoolSetting("Air Place", "Place floating blocks straight into the air (no scaffolding). Works in singleplayer; some servers block it.", true));
     public final BoolSetting removeScaffold = add(new BoolSetting("Remove Scaffold", "Take the scaffolding and pillars down when finished.", true));
     public final BoolSetting preview = add(new BoolSetting("Preview", "Outline the blocks still to place.", true));
     public final ButtonSetting loadBtn = add(new ButtonSetting("Load", "Show the schematic in front of you so you can place it (hold a stick to move it).", "Load here", () -> load(null)));
@@ -596,6 +597,7 @@ public class Builder extends Module {
         }
         am.placedLog = scaffold;
         am.startGotoQuiet(goal, true);
+        am.tripLabel = "Building";
         moveGoal = goal;
         moveStarted = tick;
         status = "Walking to " + pos.toShortString();
@@ -660,6 +662,7 @@ public class Builder extends Module {
     /** Is there a face to click on (and, for sand/gravel, something underneath)? */
     private boolean supported(BlockPos pos, BlockState target) {
         if (target.getBlock() instanceof FallingBlock && clickable(mc.level.getBlockState(pos.below())) == false) return false;
+        if (airPlace.get()) return true;
         for (Direction d : Direction.values()) if (clickable(mc.level.getBlockState(pos.relative(d)))) return true;
         return false;
     }
@@ -709,6 +712,27 @@ public class Builder extends Module {
                         if (fallback == null) fallback = new Plan(against, face, hit, yaw, pitch, false);
                     }
                 }
+            }
+            // nothing to click on (or no exact match): click the empty spot itself ("air place")
+            if (airPlace.get() && mc.level.getBlockState(pos).canBeReplaced()) {
+                Plan airFallback = null;
+                for (Direction face : Direction.values()) {
+                    double[] hys = face.getAxis() == Direction.Axis.Y ? new double[]{face == Direction.UP ? 1.0 : 0.0} : new double[]{0.25, 0.75};
+                    for (double hy : hys) {
+                        Vec3 hit = new Vec3(pos.getX() + 0.5 + face.getStepX() * 0.5, pos.getY() + hy, pos.getZ() + 0.5 + face.getStepZ() * 0.5);
+                        for (float yaw : yaws) for (float pitch : pitches) {
+                            mc.player.setYRot(yaw);
+                            mc.player.setXRot(pitch);
+                            BlockPlaceContext ctx = new BlockPlaceContext(mc.player, InteractionHand.MAIN_HAND, stack, new BlockHitResult(hit, face, pos, false));
+                            if (!ctx.getClickedPos().equals(pos) || !ctx.canPlace()) continue;
+                            BlockState st = target.getBlock().getStateForPlacement(ctx);
+                            if (st == null) continue;
+                            if (matches(st, target)) return new Plan(pos, face, hit, yaw, pitch, true);
+                            if (airFallback == null) airFallback = new Plan(pos, face, hit, yaw, pitch, false);
+                        }
+                    }
+                }
+                if (fallback == null) fallback = airFallback;
             }
         } finally {
             mc.player.setYRot(oy);

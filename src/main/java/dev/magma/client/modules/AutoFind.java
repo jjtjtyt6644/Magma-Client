@@ -252,6 +252,7 @@ public class AutoFind extends Module {
         heading = t;
         if (found != null) status = "Going to " + structure.get();
         engine().startGoto(t, dig.get(), false, false);
+        ModuleManager.get(AutoMiner.class).tripLabel = "AutoFind · " + structure.get();
     }
 
     @Override

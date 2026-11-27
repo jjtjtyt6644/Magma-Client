@@ -533,6 +533,7 @@ public class AutoMiner extends Module {
                 dev.magma.client.util.Notify.show("Full - returning to base", Theme.accent());
                 returningHome = true;
                 startGoto(home, true, false, false);
+                tripLabel = "Returning to base";
                 return;
             }
             Chat.info("AutoMiner: inventory full, but no Base is set (Base module -> Set here).");
@@ -895,7 +896,11 @@ public class AutoMiner extends Module {
         gotoQuiet = true;
     }
 
+    /** What the current trip is for, shown on the HUD card ("Going home", "Building", "AutoFind · Village"...). */
+    public String tripLabel = "Goto";
+
     public void startGoto(BlockPos target, boolean dig, boolean mineOnWay, boolean exactY) {
+        tripLabel = "Goto";
         gotoQuiet = false;
         gotoExactY = exactY;
         gotoDig = dig;
@@ -924,6 +929,7 @@ public class AutoMiner extends Module {
     }
 
     private void finishGoto(boolean arrived, String msg) {
+        if (!"Goto".equals(tripLabel) && msg.startsWith("Goto")) msg = tripLabel + msg.substring(4); // "Going home: arrived..."
         finishingGoto = true;
         try {
             if (!gotoQuiet) {
@@ -1026,11 +1032,11 @@ public class AutoMiner extends Module {
                 if (part != null && part.size() > 1) {
                     gotoJob = null;
                     startPath(part, null);
-                    status = "Goto: " + (int) dist + " blocks left";
+                    status = tripLabel + ": " + (int) dist + " blocks left";
                     return;
                 }
             }
-            status = "Goto: planning (" + gotoJob.expanded() + ")";
+            status = tripLabel + ": planning (" + gotoJob.expanded() + ")";
             return; // keep searching next tick
         }
         List<BlockPos> route = gotoJob.result() != null ? gotoJob.result() : gotoJob.partialResult(); // partial = as far as we safely can
@@ -1038,10 +1044,10 @@ public class AutoMiner extends Module {
         if (route != null && route.size() > 1) {
             gotoFails = 0;
             startPath(route, null);
-            status = "Goto: " + (int) Math.sqrt(start.distSqr(t)) + " blocks left";
+            status = tripLabel + ": " + (int) Math.sqrt(start.distSqr(t)) + " blocks left";
         } else {
             gotoFails++;
-            status = "Goto: no safe way yet (" + gotoFails + "/8)";
+            status = tripLabel + ": no safe way yet (" + gotoFails + "/8)";
             cooldown = 30;
             if (gotoFails > 8) {
                 String why = !mc.level.hasChunkAt(t) ? " (that area isn't loaded and the way there is blocked)"
