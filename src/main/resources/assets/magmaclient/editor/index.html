@@ -141,10 +141,21 @@ select.search{appearance:auto}
     </div>
 
     <div class="step">
+      <h3>Adjust picture</h3>
+      <div class="row"><label>Brightness</label><input type="range" id="bright" min="-60" max="60" value="0"></div>
+      <div class="row"><label>Contrast</label><input type="range" id="contrast" min="-60" max="60" value="0"></div>
+      <div class="row"><label>Colour</label><input type="range" id="sat" min="0" max="200" value="100"></div>
+      <div class="hint"><span class="link" id="resetAdj">Reset</span></div>
+    </div>
+
+    <div class="step">
       <h3>4 · Blocks to use</h3>
       <div class="chips" id="groups"></div>
-      <label class="check"><input type="checkbox" id="dither"> Dithering (smoother shading)</label>
+      <label class="check"><input type="checkbox" id="plain" checked> Prefer plain-looking blocks</label>
       <label class="check"><input type="checkbox" id="transp" checked> See-through pixels = no block</label>
+      <label class="check"><input type="checkbox" id="removeBg"> Remove background</label>
+      <div class="row"><label>Shading</label></div>
+      <div class="seg" id="ditherMode"><button data-v="none" class="on">Flat</button><button data-v="pattern">Pattern</button><button data-v="smooth">Smooth</button></div>
       <div class="row"><label>Fewest block types</label><input type="range" id="maxColors" min="2" max="64" value="64"><span class="hint" id="maxColorsV">all</span></div>
     </div>
   </aside>
@@ -174,6 +185,17 @@ select.search{appearance:auto}
       <div class="row"><button class="btn" id="new3d" style="flex:1">New empty</button></div>
     </div>
     <div class="step">
+      <h3>Tool</h3>
+      <div class="chips" id="tools3d">
+        <button class="chip on" data-t="block" title="One block at a time (like Minecraft)">Block</button>
+        <button class="chip" data-t="box" title="Fill a box: floors, ceilings, walls, solid blocks">Box</button>
+        <button class="chip" data-t="walls" title="Four walls around an area">Walls</button>
+        <button class="chip" data-t="line" title="A straight line between two points">Line</button>
+        <button class="chip" data-t="replace" title="Swap blocks inside a box for the one in your hand">Replace</button>
+      </div>
+      <div class="hint" id="toolHint" style="margin-top:8px">Right-click places, left-click breaks.</div>
+    </div>
+    <div class="step">
       <h3>View</h3>
       <button class="btn primary" id="flyBtn" style="width:100%">✈ Fly around (like Minecraft)</button>
       <div class="row"><button class="btn" id="resetView" style="flex:1">Reset view</button></div>
@@ -190,7 +212,7 @@ select.search{appearance:auto}
   <main id="main3d">
     <canvas id="c3d"></canvas>
     <div class="cross" id="cross"></div>
-    <div class="help3d" id="help3d"><b>Left-click</b> place · <b>Right-click</b> break · <b>Middle-click</b> pick<br><b>Right-drag</b> spin · <b>Shift+right-drag</b> move · <b>Scroll</b> zoom<br><b>1-9</b> hotbar · <b>Ctrl+Z</b> undo · <b>Fly</b>: WASD, Space/Shift, Esc to stop</div>
+    <div class="help3d" id="help3d"></div>
     <div class="blockname" id="blockname"></div>
     <div class="hotbar" id="hotbar"></div>
   </main>
@@ -237,13 +259,24 @@ function lab(r, g, b) {
   x = h(x); y = h(y); z = h(z);
   return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
 }
+let nearCache = new Map(), nearKey = "";
 function nearest(r, g, b, allowed) {
+  // same colour, same answer: cache per run (pictures repeat colours a lot)
+  const plain = $("plain").checked;
+  const sig = allowed.length + ":" + allowed[0] + ":" + allowed[allowed.length - 1] + ":" + plain;
+  if (sig !== nearKey) { nearCache = new Map(); nearKey = sig; }
+  const ck = (r << 16) | (g << 8) | b;
+  const hit = nearCache.get(ck);
+  if (hit !== undefined) return hit;
   const L = lab(r, g, b);
   let best = -1, bd = Infinity;
   for (const i of allowed) {
-    const p = PAL[i].lab, d = (p[0] - L[0]) ** 2 + (p[1] - L[1]) ** 2 + (p[2] - L[2]) ** 2;
+    const p = PAL[i], q = p.lab;
+    let d = (q[0] - L[0]) ** 2 + (q[1] - L[1]) ** 2 + (q[2] - L[2]) ** 2;
+    if (plain) d += (p.noise * 100) ** 2 * 0.45; // busy textures look worse up close than their average colour says
     if (d < bd) { bd = d; best = i; }
   }
+  nearCache.set(ck, best);
   return best;
 }
 
@@ -263,7 +296,8 @@ async function init() {
     p.img.onload = p.img.onerror = ok;
     p.img.src = p.tex;
   })));
-  const order = ["Wool", "Concrete", "Terracotta", "Glazed terracotta", "Wood", "Stone", "Copper", "Other"];
+  const order = ["Wool", "Concrete", "Terracotta", "Glazed terracotta", "Wood", "Stone", "Copper", "Glass", "Stairs & slabs",
+    "Fences & walls", "Doors", "Plants", "Lights", "Decoration", "Other"];
   PAL.sort((a, b) => order.indexOf(a.group) - order.indexOf(b.group) || a.name.localeCompare(b.name));
   cur = Math.max(0, PAL.findIndex(p => p.id === "minecraft:white_wool"));
   buildGroups();
@@ -276,11 +310,11 @@ async function init() {
 function buildGroups() {
   const box = $("groups");
   box.innerHTML = "";
-  const names = [...new Set(PAL.map(p => p.group))];
+  const names = [...new Set(PAL.filter(p => p.art).map(p => p.group))];
   for (const g of names) {
     const c = document.createElement("button");
     c.className = "chip" + (groupsOn.has(g) ? " on" : "");
-    c.textContent = g + " " + PAL.filter(p => p.group === g).length;
+    c.textContent = g + " " + PAL.filter(p => p.art && p.group === g).length;
     c.onclick = () => {
       if (groupsOn.has(g)) groupsOn.delete(g); else groupsOn.add(g);
       if (groupsOn.size === 0) groupsOn.add(g);
@@ -296,9 +330,22 @@ function buildPalette() {
   const q = $("search").value.trim().toLowerCase();
   const box = $("pal");
   box.innerHTML = "";
+  let lastGroup = null;
   PAL.forEach((p, i) => {
     if (q && !p.name.toLowerCase().includes(q) && !p.id.includes(q)) return;
-    if (!q && !groupsOn.has(p.group)) return;
+    if (window.mode3d) {
+      // 3D: every block, with group headings
+      if (p.group !== lastGroup) {
+        lastGroup = p.group;
+        const h = document.createElement("div");
+        h.textContent = p.group;
+        h.style.cssText = "grid-column:1/-1;font-size:11px;color:#8a93a3;margin-top:6px;text-transform:uppercase;letter-spacing:.05em";
+        box.appendChild(h);
+      }
+    } else {
+      if (!p.art) return;
+      if (!q && !groupsOn.has(p.group)) return;
+    }
     const b = document.createElement("button");
     b.className = "sw" + (i === cur ? " on" : "");
     b.title = p.name;
@@ -344,7 +391,7 @@ function loadImage(src) {
 
 function allowedIdx() {
   const out = [];
-  PAL.forEach((p, i) => { if (groupsOn.has(p.group)) out.push(i); });
+  PAL.forEach((p, i) => { if (p.art && groupsOn.has(p.group)) out.push(i); });
   return out;
 }
 
@@ -360,10 +407,12 @@ function convert(snapshot) {
   cx.imageSmoothingQuality = "high";
   cx.drawImage(img, 0, 0, W, H);
   const px = cx.getImageData(0, 0, W, H).data;
+  adjust(px);
+  if ($("removeBg").checked) removeBackground(px, W, H);
   let allowed = allowedIdx();
   const maxC = +$("maxColors").value;
   if (maxC < 64) allowed = reducePalette(px, allowed, maxC);
-  const dither = $("dither").checked, transp = $("transp").checked;
+  const mode = ditherMode, dither = mode === "smooth", transp = $("transp").checked;
   grid = new Int16Array(W * H);
   const err = dither ? new Float32Array(W * H * 3) : null;
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
@@ -371,6 +420,7 @@ function convert(snapshot) {
     if (transp && px[o + 3] < 128) { grid[i] = -1; continue; }
     let r = px[o], g = px[o + 1], b = px[o + 2];
     if (dither) { r += err[i * 3]; g += err[i * 3 + 1]; b += err[i * 3 + 2]; }
+    else if (mode === "pattern") { const t = (BAYER[y & 3][x & 3] / 16 - 0.47) * 40; r += t; g += t; b += t; }
     const k = nearest(clamp(r), clamp(g), clamp(b), allowed);
     grid[i] = k;
     if (dither) {
@@ -386,7 +436,46 @@ function convert(snapshot) {
   }
   changed();
 }
-const clamp = v => v < 0 ? 0 : v > 255 ? 255 : v;
+const clamp = v => v < 0 ? 0 : v > 255 ? 255 : v | 0;
+const BAYER = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]];
+let ditherMode = "none";
+
+/** Brightness / contrast / colour sliders. */
+function adjust(px) {
+  const br = +$("bright").value, ct = +$("contrast").value, sat = +$("sat").value / 100;
+  if (br === 0 && ct === 0 && sat === 1) return;
+  const f = (259 * (ct * 2 + 255)) / (255 * (259 - ct * 2));
+  for (let o = 0; o < px.length; o += 4) {
+    let r = px[o], g = px[o + 1], b = px[o + 2];
+    const l = 0.299 * r + 0.587 * g + 0.114 * b;
+    r = l + (r - l) * sat; g = l + (g - l) * sat; b = l + (b - l) * sat;
+    r = f * (r - 128) + 128 + br; g = f * (g - 128) + 128 + br; b = f * (b - 128) + 128 + br;
+    px[o] = clamp(r); px[o + 1] = clamp(g); px[o + 2] = clamp(b);
+  }
+}
+
+/** Everything connected to the edges that looks like the corners' colour becomes "no block". */
+function removeBackground(px, w, h) {
+  const corners = [0, w - 1, (h - 1) * w, h * w - 1];
+  let br = 0, bg = 0, bb = 0;
+  for (const c of corners) { br += px[c * 4]; bg += px[c * 4 + 1]; bb += px[c * 4 + 2]; }
+  br /= 4; bg /= 4; bb /= 4;
+  const near = i => px[i * 4 + 3] < 128 || ((px[i * 4] - br) ** 2 + (px[i * 4 + 1] - bg) ** 2 + (px[i * 4 + 2] - bb) ** 2) < 45 * 45;
+  const seen = new Uint8Array(w * h), st = [];
+  for (let x = 0; x < w; x++) st.push(x, (h - 1) * w + x);
+  for (let y = 0; y < h; y++) st.push(y * w, y * w + w - 1);
+  while (st.length) {
+    const i = st.pop();
+    if (seen[i] || !near(i)) continue;
+    seen[i] = 1;
+    px[i * 4 + 3] = 0;
+    const x = i % w, y = (i / w) | 0;
+    if (x > 0) st.push(i - 1);
+    if (x < w - 1) st.push(i + 1);
+    if (y > 0) st.push(i - w);
+    if (y < h - 1) st.push(i + w);
+  }
+}
 
 /** Keep only the n blocks that the picture uses most (simple, predictable). */
 function reducePalette(px, allowed, n) {
@@ -658,7 +747,14 @@ let convTimer = 0;
 function reconvert() { clearTimeout(convTimer); convTimer = setTimeout(() => { convert(true); fit(); }, 150); }
 $("width").oninput = () => { $("wnum").value = $("width").value; if (img) reconvert(); };
 $("wnum").onchange = () => { $("width").value = $("wnum").value; if (img) reconvert(); };
-$("dither").onchange = $("transp").onchange = () => img && convert(true);
+$("plain").onchange = $("transp").onchange = $("removeBg").onchange = () => { if ($("removeBg").checked) $("transp").checked = true; if (img) convert(true); };
+for (const b of $("ditherMode").children) b.onclick = () => {
+  ditherMode = b.dataset.v;
+  for (const o of $("ditherMode").children) o.classList.toggle("on", o === b);
+  if (img) convert(true);
+};
+for (const id of ["bright", "contrast", "sat"]) $(id).oninput = () => img && reconvert();
+$("resetAdj").onclick = () => { $("bright").value = 0; $("contrast").value = 0; $("sat").value = 100; if (img) convert(true); };
 $("maxColors").oninput = () => { const v = +$("maxColors").value; $("maxColorsV").textContent = v >= 64 ? "all" : v; if (img) reconvert(); };
 for (const b of $("orient").children) b.onclick = () => {
   orient = b.dataset.v;
@@ -761,84 +857,177 @@ init();
 import * as THREE from "/three.module.min.js";
 const $ = id => document.getElementById(id);
 
-// ---------------------------------------------------------------- data
-const P3 = [];                 // 3D palette: {state,id,name,tex,rgb}
+// ================================================================ data
+// P3: every block state the 3D editor knows: {state,id,name,tex,rgb,shape,box,turn,group,see, props}
+const P3 = [];
 const stateIdx = new Map();
+function parseProps(state) {
+  const o = {}, m = /\[(.*)\]$/.exec(state);
+  if (m) for (const kv of m[1].split(",")) { const [k, v] = kv.split("="); o[k] = v; }
+  return o;
+}
 function addPal(e) {
   let i = stateIdx.get(e.state);
-  if (i === undefined) { i = P3.length; P3.push(e); stateIdx.set(e.state, i); }
+  if (i === undefined) {
+    i = P3.length;
+    P3.push(Object.assign({}, e, {props: parseProps(e.state)}));
+    stateIdx.set(e.state, i);
+  }
   return i;
 }
-function syncPal() { // the picture palette comes first, so PAL index == P3 index for those
+function syncPal() { // PAL (all blocks, default states) comes first, so PAL index == P3 index for those
   if (P3.length >= PAL.length) return;
-  PAL.forEach(p => addPal({state: p.state || p.id, id: p.id, name: p.name, tex: p.tex, rgb: p.rgb}));
+  PAL.forEach(p => addPal(p));
 }
-const vox = new Map();          // "x,y,z" -> palette index
+/** The same block with some properties set ("minecraft:oak_stairs[facing=east,half=top]"). */
+function variant(i, props) {
+  const base = P3[i];
+  const all = Object.assign({}, base.props, props);
+  const keys = Object.keys(all);
+  const state = base.id + (keys.length ? "[" + keys.map(k => k + "=" + all[k]).join(",") + "]" : "");
+  return addPal(Object.assign({}, base, {state}));
+}
+
+const vox = new Map();            // "x,y,z" -> P3 index
 const key = (x, y, z) => x + "," + y + "," + z;
+const unkey = k => k.split(",").map(Number);
 let hotbar = [], slot = 0;
 let undoS = [], redoS = [];
 let maxLayer = Infinity;
+let tool = "block", corner = null; // first corner of a box/walls/line/replace
 
-// ---------------------------------------------------------------- three.js scene
+// ================================================================ scene
 const canvas = $("c3d");
 const renderer = new THREE.WebGLRenderer({canvas, antialias: true});
 renderer.setPixelRatio(Math.min(2, devicePixelRatio));
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x8fb8ff);
-scene.fog = new THREE.Fog(0x8fb8ff, 120, 400);
+scene.fog = new THREE.Fog(0x8fb8ff, 160, 500);
 const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 1000);
 scene.add(new THREE.HemisphereLight(0xffffff, 0x8899aa, 1.1));
 const sun = new THREE.DirectionalLight(0xffffff, 1.0);
 sun.position.set(0.6, 1, 0.35);
 scene.add(sun);
-const box = new THREE.BoxGeometry(1, 1, 1);
+
+/** A box geometry from (x0,y0,z0)-(x1,y1,z1) in block units, centred on the block (block spans -0.5..0.5). */
+function boxGeo(x0, y0, z0, x1, y1, z1) {
+  const g = new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0);
+  g.translate((x0 + x1) / 2 - 0.5, (y0 + y1) / 2 - 0.5, (z0 + z1) / 2 - 0.5);
+  // texture each face with the matching part of the block texture (so a slab shows half a plank, not a squashed one)
+  const uv = g.attributes.uv, pos = g.attributes.position, nor = g.attributes.normal;
+  for (let i = 0; i < uv.count; i++) {
+    const x = pos.getX(i) + 0.5, y = pos.getY(i) + 0.5, z = pos.getZ(i) + 0.5;
+    const nx = Math.abs(nor.getX(i)), ny = Math.abs(nor.getY(i));
+    if (ny > 0.5) uv.setXY(i, x, 1 - z);
+    else if (nx > 0.5) uv.setXY(i, z, y);
+    else uv.setXY(i, x, y);
+  }
+  return g;
+}
+function merge(geos) {
+  const out = new THREE.BufferGeometry();
+  const attrs = ["position", "normal", "uv"], data = {position: [], normal: [], uv: []}, index = [];
+  let off = 0;
+  for (const g of geos) {
+    for (const a of attrs) data[a].push(...g.attributes[a].array);
+    for (const v of g.index.array) index.push(v + off);
+    off += g.attributes.position.count;
+  }
+  out.setAttribute("position", new THREE.Float32BufferAttribute(data.position, 3));
+  out.setAttribute("normal", new THREE.Float32BufferAttribute(data.normal, 3));
+  out.setAttribute("uv", new THREE.Float32BufferAttribute(data.uv, 2));
+  out.setIndex(index);
+  return out;
+}
+const GEO = {
+  full: boxGeo(0, 0, 0, 1, 1, 1),
+  slabB: boxGeo(0, 0, 0, 1, 0.5, 1),
+  slabT: boxGeo(0, 0.5, 0, 1, 1, 1),
+  stairs: merge([boxGeo(0, 0, 0, 1, 0.5, 1), boxGeo(0, 0.5, 0, 1, 1, 0.5)]), // facing north: tall part at the back (north)
+  post: boxGeo(0.375, 0, 0.375, 0.625, 1, 0.625),
+  small: boxGeo(0.3, 0, 0.3, 0.7, 0.65, 0.7),
+};
+const boxCache = new Map();
+function geoFor(p) {
+  if (p.shape === "slab") return p.props.type === "top" ? GEO.slabT : p.props.type === "double" ? GEO.full : GEO.slabB;
+  if (p.shape === "stairs") return GEO.stairs;
+  if (p.shape === "post") return GEO.post;
+  if (p.shape === "small") return GEO.small;
+  if (p.shape === "box" && p.box) {
+    const k = p.box.join(",");
+    if (!boxCache.has(k)) boxCache.set(k, boxGeo(...p.box));
+    return boxCache.get(k);
+  }
+  return GEO.full;
+}
+const YAW = {north: 0, west: Math.PI / 2, south: Math.PI, east: -Math.PI / 2};
+/** Rotation for the block's facing (stairs, and boxes like doors/trapdoors use the default shape). */
+function rotFor(p) {
+  const q = new THREE.Quaternion();
+  if (p.shape === "stairs") {
+    q.setFromEuler(new THREE.Euler(p.props.half === "top" ? Math.PI : 0, YAW[p.props.facing] ?? 0, 0, "YXZ"));
+    if (p.props.half === "top") q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI));
+  } else if (p.props.facing && YAW[p.props.facing] !== undefined && p.shape === "box") {
+    q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), YAW[p.props.facing]);
+  } else if (p.props.axis === "x") q.setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2);
+  else if (p.props.axis === "z") q.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
+  return q;
+}
 const mats = new Map();
 const loader = new THREE.TextureLoader();
 function mat(i) {
-  if (mats.has(i)) return mats.get(i);
-  const p = P3[i];
+  const p = P3[i], k = p.id;
+  if (mats.has(k)) return mats.get(k);
   let m;
+  const opts = p.see ? {transparent: true, alphaTest: 0.04, side: THREE.DoubleSide} : {};
   if (p.tex) {
     const t = loader.load(p.tex);
     t.magFilter = THREE.NearestFilter;
     t.minFilter = THREE.NearestFilter;
     t.colorSpace = THREE.SRGBColorSpace;
-    m = new THREE.MeshLambertMaterial({map: t});
-  } else m = new THREE.MeshLambertMaterial({color: new THREE.Color(`rgb(${p.rgb.join(",")})`)});
-  mats.set(i, m);
+    m = new THREE.MeshLambertMaterial(Object.assign({map: t}, opts));
+  } else m = new THREE.MeshLambertMaterial(Object.assign({color: new THREE.Color(`rgb(${p.rgb.join(",")})`)}, opts));
+  mats.set(k, m);
   return m;
 }
 let meshes = [];
 const grid = new THREE.GridHelper(64, 64, 0x445566, 0x334455);
 grid.material.opacity = 0.5; grid.material.transparent = true;
 scene.add(grid);
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), new THREE.MeshBasicMaterial({visible: false}));
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000), new THREE.MeshBasicMaterial({visible: false}));
 ground.rotation.x = -Math.PI / 2;
 scene.add(ground);
 const outline = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1.01, 1.01, 1.01)),
-  new THREE.LineBasicMaterial({color: 0x000000, transparent: true, opacity: 0.8}));
+  new THREE.LineBasicMaterial({color: 0x000000, transparent: true, opacity: 0.85}));
 outline.visible = false;
 scene.add(outline);
+const selBox = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)), new THREE.LineBasicMaterial({color: 0xff7a1a}));
+selBox.visible = false;
+scene.add(selBox);
+const selFill = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({color: 0xff7a1a, transparent: true, opacity: 0.15, depthWrite: false}));
+selFill.visible = false;
+scene.add(selFill);
 
+const isFull = i => { const p = P3[i]; return p && p.shape === "full" && !p.see; };
 let dirty = true;
 function rebuild() {
   for (const m of meshes) { scene.remove(m); m.dispose(); }
   meshes = [];
   const groups = new Map();
   for (const [k, i] of vox) {
-    const [x, y, z] = k.split(",").map(Number);
+    const [x, y, z] = unkey(k);
     if (y > maxLayer) continue;
-    // fully hidden inside other blocks: never seen, don't draw
-    if (y < maxLayer && vox.has(key(x + 1, y, z)) && vox.has(key(x - 1, y, z)) && vox.has(key(x, y + 1, z))
-        && vox.has(key(x, y - 1, z)) && vox.has(key(x, y, z + 1)) && vox.has(key(x, y, z - 1))) continue;
+    // completely buried inside full blocks: never seen, don't draw
+    if (y < maxLayer && isFull(vox.get(key(x + 1, y, z))) && isFull(vox.get(key(x - 1, y, z))) && isFull(vox.get(key(x, y + 1, z)))
+        && isFull(vox.get(key(x, y - 1, z))) && isFull(vox.get(key(x, y, z + 1))) && isFull(vox.get(key(x, y, z - 1)))) continue;
     if (!groups.has(i)) groups.set(i, []);
     groups.get(i).push(x, y, z);
   }
-  const m4 = new THREE.Matrix4();
+  const m4 = new THREE.Matrix4(), one = new THREE.Vector3(1, 1, 1), v = new THREE.Vector3();
   for (const [i, arr] of groups) {
-    const n = arr.length / 3;
-    const im = new THREE.InstancedMesh(box, mat(i), n);
-    for (let j = 0; j < n; j++) im.setMatrixAt(j, m4.makeTranslation(arr[j * 3] + 0.5, arr[j * 3 + 1] + 0.5, arr[j * 3 + 2] + 0.5));
+    const p = P3[i], n = arr.length / 3, q = rotFor(p);
+    const im = new THREE.InstancedMesh(geoFor(p), mat(i), n);
+    for (let j = 0; j < n; j++) im.setMatrixAt(j, m4.compose(v.set(arr[j * 3] + 0.5, arr[j * 3 + 1] + 0.5, arr[j * 3 + 2] + 0.5), q, one));
     im.instanceMatrix.needsUpdate = true;
     im.userData.pos = arr;
     scene.add(im);
@@ -848,7 +1037,7 @@ function rebuild() {
   info();
 }
 
-// ---------------------------------------------------------------- camera (orbit + fly)
+// ================================================================ camera: orbit + fly
 const orbit = {tx: 8, ty: 4, tz: 8, yaw: 0.8, pitch: 0.55, dist: 30};
 let flying = false;
 const fly = {x: 0, y: 10, z: 0, yaw: 0, pitch: 0};
@@ -857,7 +1046,7 @@ function bounds() {
   if (!vox.size) return {minX: 0, minY: 0, minZ: 0, maxX: 15, maxY: 7, maxZ: 15};
   const b = {minX: Infinity, minY: Infinity, minZ: Infinity, maxX: -Infinity, maxY: -Infinity, maxZ: -Infinity};
   for (const k of vox.keys()) {
-    const [x, y, z] = k.split(",").map(Number);
+    const [x, y, z] = unkey(k);
     b.minX = Math.min(b.minX, x); b.minY = Math.min(b.minY, y); b.minZ = Math.min(b.minZ, z);
     b.maxX = Math.max(b.maxX, x); b.maxY = Math.max(b.maxY, y); b.maxZ = Math.max(b.maxZ, z);
   }
@@ -882,47 +1071,64 @@ function placeCamera() {
   }
 }
 
-// ---------------------------------------------------------------- picking
+// ================================================================ picking
 const ray = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
-let target = null; // {hit:[x,y,z]|null, place:[x,y,z]}
+let target = null; // {hit:[x,y,z]|null, place:[x,y,z], normal:[nx,ny,nz], fy: fraction of the hit height}
 function pick(clientX, clientY) {
-  if (flying) ndc.set(0, 0);
+  if (flying || clientX === undefined) ndc.set(0, 0);
   else {
     const r = canvas.getBoundingClientRect();
     ndc.set(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
   }
   ray.setFromCamera(ndc, camera);
-  ray.far = flying ? 30 : 2000;
+  ray.far = flying ? 40 : 3000;
   const hits = ray.intersectObjects([...meshes, ground], false);
   if (!hits.length) return null;
   const h = hits[0];
   if (h.object === ground) {
-    const x = Math.floor(h.point.x), z = Math.floor(h.point.z);
-    return {hit: null, place: [x, 0, z]};
+    return {hit: null, place: [Math.floor(h.point.x), 0, Math.floor(h.point.z)], normal: [0, 1, 0], fy: 0};
   }
   const a = h.object.userData.pos, j = h.instanceId;
   const p = [a[j * 3], a[j * 3 + 1], a[j * 3 + 2]];
-  const n = h.face.normal;
-  return {hit: p, place: [p[0] + Math.round(n.x), p[1] + Math.round(n.y), p[2] + Math.round(n.z)]};
+  const m = new THREE.Matrix4();
+  h.object.getMatrixAt(j, m);
+  const n = h.face.normal.clone().transformDirection(m);
+  const nr = [Math.round(n.x), Math.round(n.y), Math.round(n.z)];
+  return {hit: p, place: [p[0] + nr[0], p[1] + nr[1], p[2] + nr[2]], normal: nr, fy: h.point.y - Math.floor(h.point.y + 1e-6)};
 }
 function showTarget() {
-  if (target && target.hit) { outline.visible = true; outline.position.set(target.hit[0] + 0.5, target.hit[1] + 0.5, target.hit[2] + 0.5); }
-  else if (target) { outline.visible = true; outline.position.set(target.place[0] + 0.5, target.place[1] + 0.5, target.place[2] + 0.5); }
-  else outline.visible = false;
+  if (target) {
+    const c = target.hit || target.place;
+    outline.visible = true;
+    outline.position.set(c[0] + 0.5, c[1] + 0.5, c[2] + 0.5);
+  } else outline.visible = false;
+  // live preview of the box/walls/line being dragged out
+  if (corner && target) {
+    const b = target.hit && corner.erase ? target.hit : target.place;
+    const x0 = Math.min(corner.p[0], b[0]), x1 = Math.max(corner.p[0], b[0]);
+    const y0 = Math.min(corner.p[1], b[1]), y1 = Math.max(corner.p[1], b[1]);
+    const z0 = Math.min(corner.p[2], b[2]), z1 = Math.max(corner.p[2], b[2]);
+    for (const o of [selBox, selFill]) {
+      o.visible = true;
+      o.scale.set(x1 - x0 + 1.02, y1 - y0 + 1.02, z1 - z0 + 1.02);
+      o.position.set((x0 + x1 + 1) / 2, (y0 + y1 + 1) / 2, (z0 + z1 + 1) / 2);
+    }
+    selFill.material.color.set(corner.erase ? 0xff5252 : 0xff7a1a);
+  } else selBox.visible = selFill.visible = false;
 }
 
-// ---------------------------------------------------------------- editing
+// ================================================================ editing
 function set(x, y, z, v, ops) {
   const k = key(x, y, z), before = vox.has(k) ? vox.get(k) : -1;
-  if (before === v) return;
+  if (before === v || y < 0) return;
   if (v < 0) vox.delete(k); else vox.set(k, v);
   ops.push([k, before, v]);
 }
 function commit(ops) {
   if (!ops.length) return;
   undoS.push(ops);
-  if (undoS.length > 200) undoS.shift();
+  if (undoS.length > 300) undoS.shift();
   redoS = [];
   dirty = true;
 }
@@ -935,12 +1141,37 @@ function applyOps(ops, back) {
 }
 function undo3() { const o = undoS.pop(); if (o) { applyOps(o, true); redoS.push(o); } }
 function redo3() { const o = redoS.pop(); if (o) { applyOps(o, false); undoS.push(o); } }
+
+/** Which way you're looking, as a Minecraft direction. */
+function lookDir() {
+  const d = new THREE.Vector3();
+  camera.getWorldDirection(d);
+  const h = Math.abs(d.x) > Math.abs(d.z) ? (d.x > 0 ? "east" : "west") : (d.z > 0 ? "south" : "north");
+  const all = Math.abs(d.y) > 0.75 ? (d.y > 0 ? "up" : "down") : h;
+  return {h, all};
+}
+const OPP = {north: "south", south: "north", east: "west", west: "east", up: "down", down: "up"};
+/** The block in your hand, turned the way Minecraft would place it from here. */
+function placed(i, t) {
+  const p = P3[i];
+  if (!p) return i;
+  const props = {};
+  const top = t && (t.normal[1] === -1 || (t.normal[1] === 0 && t.fy > 0.5));
+  const look = lookDir();
+  if (p.shape === "slab") props.type = top ? "top" : "bottom";
+  if (p.turn === "look") { props.facing = look.h; if (p.shape === "stairs") props.half = top ? "top" : "bottom"; }
+  else if (p.turn === "face") props.facing = OPP[look.h];
+  else if (p.turn === "face6") props.facing = OPP[look.all];
+  else if (p.turn === "axis" && t) props.axis = t.normal[0] ? "x" : t.normal[2] ? "z" : "y";
+  if (p.id.includes("trapdoor")) props.half = top ? "top" : "bottom";
+  return Object.keys(props).length ? variant(i, props) : i;
+}
+function hand() { return hotbar[slot]; }
+
 function placeBlock() {
-  if (!target || hotbar[slot] === undefined) return;
-  const [x, y, z] = target.place;
-  if (y < 0) return;
+  if (!target || hand() === undefined) return;
   const ops = [];
-  set(x, y, z, hotbar[slot], ops);
+  set(...target.place, placed(hand(), target), ops);
   commit(ops);
 }
 function breakBlock() {
@@ -953,12 +1184,56 @@ function pickBlock() {
   if (!target || !target.hit) return;
   const i = vox.get(key(...target.hit));
   if (i === undefined) return;
-  const at = hotbar.indexOf(i);
-  if (at >= 0) slot = at; else hotbar[slot] = i;
+  const base = stateIdx.get(P3[i].id) ?? i; // keep the plain block in the hotbar; it gets turned when placed
+  const at = hotbar.indexOf(base);
+  if (at >= 0) slot = at; else hotbar[slot] = base;
   drawHotbar();
 }
 
-// ---------------------------------------------------------------- hotbar
+/** Box-type tools: first click sets a corner, second click does the job. */
+function areaClick(place) {
+  if (!target) return;
+  const p = place ? target.place : (target.hit || target.place);
+  if (!corner) { corner = {p, erase: !place}; toolHint(); return; }
+  const a = corner.p, erase = corner.erase;
+  corner = null;
+  const x0 = Math.min(a[0], p[0]), x1 = Math.max(a[0], p[0]), y0 = Math.min(a[1], p[1]), y1 = Math.max(a[1], p[1]);
+  const z0 = Math.min(a[2], p[2]), z1 = Math.max(a[2], p[2]);
+  const ops = [], h = hand(), b = h === undefined ? -1 : placed(h, target);
+  if ((x1 - x0 + 1) * (y1 - y0 + 1) * (z1 - z0 + 1) > 400000) { toast("That's too big for one go - do it in parts.", "err"); toolHint(); return; }
+  if (tool === "line") {
+    const n = Math.max(x1 - x0, y1 - y0, z1 - z0, 1);
+    for (let s = 0; s <= n; s++) set(Math.round(a[0] + (p[0] - a[0]) * s / n), Math.round(a[1] + (p[1] - a[1]) * s / n),
+      Math.round(a[2] + (p[2] - a[2]) * s / n), erase ? -1 : b, ops);
+  } else {
+    for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) {
+      if (tool === "walls" && x !== x0 && x !== x1 && z !== z0 && z !== z1) continue;
+      const k = key(x, y, z);
+      if (tool === "replace") { if (vox.has(k)) set(x, y, z, erase ? -1 : b, ops); }
+      else set(x, y, z, erase ? -1 : b, ops);
+    }
+  }
+  commit(ops);
+  toolHint();
+  if (ops.length) toast((erase ? "Removed " : "Placed ") + ops.length + " blocks.", "ok");
+}
+const HINTS = {
+  block: "Right-click places, left-click breaks, middle-click picks a block.",
+  box: "Right-click two corners to fill a box (floor, ceiling, wall...). Left-click two corners to clear one.",
+  walls: "Right-click two opposite corners: builds the 4 walls between them, as high as you go.",
+  line: "Right-click a start and an end to draw a straight line. Left-click to erase one.",
+  replace: "Right-click two corners: every block inside becomes the one in your hand.",
+};
+function toolHint() {
+  $("toolHint").textContent = corner ? "Now click the other corner (Esc cancels)." : HINTS[tool];
+}
+for (const b of $("tools3d").children) b.onclick = () => {
+  tool = b.dataset.t; corner = null;
+  for (const o of $("tools3d").children) o.classList.toggle("on", o === b);
+  toolHint();
+};
+
+// ================================================================ hotbar
 function drawHotbar() {
   const hb = $("hotbar");
   hb.innerHTML = "";
@@ -971,7 +1246,7 @@ function drawHotbar() {
     d.onclick = () => { slot = s; drawHotbar(); };
     hb.appendChild(d);
   }
-  const bn = $("blockname"), i = hotbar[slot];
+  const bn = $("blockname"), i = hand();
   bn.textContent = i !== undefined && P3[i] ? P3[i].name : "";
   bn.style.opacity = 1;
   clearTimeout(drawHotbar.t);
@@ -979,17 +1254,16 @@ function drawHotbar() {
 }
 window.onBlockChosen = i => { if (!window.mode3d) return; syncPal(); hotbar[slot] = i; drawHotbar(); };
 
-// ---------------------------------------------------------------- info / materials
+// ================================================================ info / materials
 function info() {
   const b = bounds();
-  $("info3d").textContent = vox.size ? `${b.maxX - b.minX + 1} × ${b.maxY - b.minY + 1} × ${b.maxZ - b.minZ + 1} · ${vox.size} blocks` : "empty - left-click the grid to place blocks";
-  const top = vox.size ? b.maxY : 16;
+  $("info3d").textContent = vox.size ? `${b.maxX - b.minX + 1} × ${b.maxY - b.minY + 1} × ${b.maxZ - b.minZ + 1} · ${vox.size} blocks` : "empty - right-click the grid to place blocks";
   const L = $("layer");
   const wasAll = maxLayer === Infinity;
-  L.max = Math.max(1, top);
+  L.max = Math.max(1, vox.size ? b.maxY : 16);
   if (wasAll) L.value = L.max;
-  $("send").disabled = $("download").disabled = vox.size === 0;
   if (!window.mode3d) return;
+  $("send").disabled = $("download").disabled = vox.size === 0;
   // count per block type (all the facings of a stair are one material)
   const count = new Map(), first = new Map();
   for (const i of vox.values()) { const id = P3[i].id; count.set(id, (count.get(id) || 0) + 1); if (!first.has(id)) first.set(id, i); }
@@ -1004,10 +1278,10 @@ function info() {
     const st = Math.floor(n / 64), rest = n % 64;
     d.innerHTML = `<img src="${P3[i].tex}"><span>${P3[i].name}</span><span class="c">${n}${st ? ` (${st}×64${rest ? "+" + rest : ""})` : ""}</span>`;
     d.onclick = () => {
-      const to = hotbar[slot];
-      if (to === undefined || to === i) return;
+      const to = hand();
+      if (to === undefined || P3[to].id === id) return;
       const ops = [];
-      for (const [k, v] of vox) if (P3[v].id === id) { const [x, y, z] = k.split(",").map(Number); set(x, y, z, to, ops); }
+      for (const [k, v] of vox) if (P3[v].id === id) set(...unkey(k), to, ops);
       commit(ops);
       toast("Swapped " + P3[i].name + " for " + P3[to].name + ".", "ok");
     };
@@ -1015,8 +1289,8 @@ function info() {
   });
 }
 
-// ---------------------------------------------------------------- loading things in
-function clearAll() { vox.clear(); undoS = []; redoS = []; maxLayer = Infinity; dirty = true; }
+// ================================================================ loading things in
+function clearAll() { vox.clear(); undoS = []; redoS = []; maxLayer = Infinity; corner = null; dirty = true; }
 async function listSchematics() {
   try {
     const l = await (await fetch("/api/schematics")).json();
@@ -1043,7 +1317,6 @@ $("openSchem").onclick = async () => {
   } catch (e) { toast("Couldn't open it: " + e.message, "err"); }
 };
 $("fromPic").onclick = () => {
-  if (typeof grid2d === "undefined") return;
   const g = window.get2d();
   if (!g) { toast("Make a picture in the Picture tab first."); return; }
   syncPal();
@@ -1056,7 +1329,6 @@ $("fromPic").onclick = () => {
   resetView(); rebuild();
   toast("Picture turned into blocks - now add depth, a back, a roof...", "ok");
 };
-const grid2d = true;
 $("new3d").onclick = () => {
   if (vox.size && !confirm("Clear everything and start empty?")) return;
   clearAll(); resetView(); rebuild();
@@ -1069,40 +1341,52 @@ $("layer").oninput = () => {
   dirty = true;
 };
 
-// ---------------------------------------------------------------- input
-let rdown = null, panMode = false;
+// ================================================================ input (Minecraft controls)
+let down = null; // {button, x, y, moved, shift}
 canvas.addEventListener("contextmenu", e => e.preventDefault());
 canvas.addEventListener("mousedown", e => {
+  e.preventDefault();
   if (flying) {
-    if (e.button === 0) breakBlock(); else if (e.button === 2) placeBlock(); else if (e.button === 1) pickBlock();
-    e.preventDefault();
+    target = pick();
+    if (e.button === 0) tool === "block" ? breakBlock() : areaClick(false);
+    else if (e.button === 2) tool === "block" ? placeBlock() : areaClick(true);
+    else if (e.button === 1) pickBlock();
     return;
   }
-  target = pick(e.clientX, e.clientY);
-  if (e.button === 0) placeBlock();
-  else if (e.button === 1) { pickBlock(); e.preventDefault(); }
-  else if (e.button === 2) { rdown = {x: e.clientX, y: e.clientY, moved: false}; panMode = e.shiftKey; }
+  if (e.button === 1) { target = pick(e.clientX, e.clientY); pickBlock(); return; }
+  down = {button: e.button, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, moved: false, shift: e.shiftKey};
 });
 window.addEventListener("mouseup", e => {
-  if (e.button === 2 && rdown && !rdown.moved && !flying) { target = pick(e.clientX, e.clientY); breakBlock(); }
-  if (e.button === 2) rdown = null;
+  if (!down || e.button !== down.button) return;
+  if (!down.moved && !flying) {
+    // a click, not a drag: right = place, left = break (like Minecraft)
+    target = pick(e.clientX, e.clientY);
+    if (tool === "block") down.button === 2 ? placeBlock() : breakBlock();
+    else areaClick(down.button === 2);
+  }
+  down = null;
 });
 canvas.addEventListener("mousemove", e => {
+  // modifier keys can get "stuck" if their key-up went elsewhere: trust the mouse event
+  if (!e.shiftKey) { keys.delete("ShiftLeft"); keys.delete("ShiftRight"); }
+  if (!e.ctrlKey) { keys.delete("ControlLeft"); keys.delete("ControlRight"); }
   if (flying) {
     fly.yaw -= e.movementX * 0.0025;
     fly.pitch = Math.max(-1.55, Math.min(1.55, fly.pitch - e.movementY * 0.0025));
     return;
   }
-  if (rdown) {
-    const dx = e.clientX - rdown.x, dy = e.clientY - rdown.y;
-    if (Math.abs(dx) + Math.abs(dy) > 3) rdown.moved = true;
-    rdown.x = e.clientX; rdown.y = e.clientY;
-    if (panMode) {
-      const s = orbit.dist * 0.0015;
-      orbit.tx -= (Math.cos(orbit.yaw) * dx) * s; orbit.tz += (Math.sin(orbit.yaw) * dx) * s; orbit.ty += dy * s;
-    } else {
-      orbit.yaw -= dx * 0.008;
-      orbit.pitch = Math.max(-1.45, Math.min(1.45, orbit.pitch + dy * 0.008));
+  if (down) {
+    const dx = e.clientX - down.x, dy = e.clientY - down.y;
+    if (Math.abs(e.clientX - down.sx) + Math.abs(e.clientY - down.sy) > 4) down.moved = true;
+    down.x = e.clientX; down.y = e.clientY;
+    if (down.moved) {
+      if (down.shift || down.button === 1) {
+        const s = orbit.dist * 0.0015;
+        orbit.tx -= (Math.cos(orbit.yaw) * dx) * s; orbit.tz += (Math.sin(orbit.yaw) * dx) * s; orbit.ty += dy * s;
+      } else {
+        orbit.yaw -= dx * 0.008;
+        orbit.pitch = Math.max(-1.45, Math.min(1.45, orbit.pitch + dy * 0.008));
+      }
     }
   }
   target = pick(e.clientX, e.clientY);
@@ -1111,26 +1395,33 @@ canvas.addEventListener("mousemove", e => {
 canvas.addEventListener("wheel", e => {
   e.preventDefault();
   if (flying) { slot = (slot + (e.deltaY > 0 ? 1 : 8)) % 9; drawHotbar(); return; }
-  orbit.dist = Math.max(3, Math.min(600, orbit.dist * (e.deltaY > 0 ? 1.12 : 1 / 1.12)));
+  orbit.dist = Math.max(3, Math.min(800, orbit.dist * (e.deltaY > 0 ? 1.12 : 1 / 1.12)));
 }, {passive: false});
 window.addEventListener("keydown", e => {
   if (!window.mode3d || e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+  if (flying && ["Space", "KeyW", "KeyA", "KeyS", "KeyD"].includes(e.code)) e.preventDefault();
   keys.add(e.code);
   const k = e.key.toLowerCase();
   if (/^[1-9]$/.test(e.key)) { slot = +e.key - 1; drawHotbar(); }
   else if ((e.ctrlKey || e.metaKey) && k === "z") { e.preventDefault(); e.stopImmediatePropagation(); e.shiftKey ? redo3() : undo3(); }
   else if ((e.ctrlKey || e.metaKey) && k === "y") { e.preventDefault(); e.stopImmediatePropagation(); redo3(); }
-  if (flying && (e.code === "Space")) e.preventDefault();
+  else if (e.key === "Escape") { if (corner) { corner = null; toolHint(); showTarget(); } else if (flying) setFlying(false); }
 }, true);
 window.addEventListener("keyup", e => keys.delete(e.code));
+// lose focus / switch window: forget every held key, so nothing keeps you moving
+window.addEventListener("blur", () => keys.clear());
+document.addEventListener("visibilitychange", () => keys.clear());
+
+const HELP_ORBIT = "<b>Right-click</b> place · <b>Left-click</b> break · <b>Middle-click</b> pick<br><b>Drag</b> spin · <b>Shift+drag</b> move · <b>Scroll</b> zoom<br><b>1-9</b> hotbar · <b>Ctrl+Z</b> undo · <b>Fly</b> to walk around like Minecraft";
+const HELP_FLY = "<b>Flying</b> · WASD move · Space up · Shift down · Ctrl faster · mouse to look<br><b>Right-click</b> place · <b>Left-click</b> break · <b>Middle</b> pick · <b>Scroll/1-9</b> hotbar · <b>Esc</b> stop";
+$("help3d").innerHTML = HELP_ORBIT;
 function setFlying(on) {
+  keys.clear();
   if (on === flying) return;
   if (on) {
-    // start where the orbit camera is, looking the same way
     fly.x = camera.position.x; fly.y = camera.position.y; fly.z = camera.position.z;
     fly.yaw = orbit.yaw; fly.pitch = -orbit.pitch;
   } else {
-    // keep orbiting around the spot in front of where you flew
     const dir = new THREE.Vector3(0, 0, -1).applyEuler(camera.rotation);
     orbit.tx = fly.x + dir.x * 10; orbit.ty = fly.y + dir.y * 10; orbit.tz = fly.z + dir.z * 10;
     orbit.dist = 10; orbit.yaw = fly.yaw; orbit.pitch = -fly.pitch;
@@ -1139,35 +1430,30 @@ function setFlying(on) {
   flying = on;
   $("cross").style.display = flying ? "block" : "none";
   $("flyBtn").textContent = flying ? "■ Stop flying (Esc)" : "✈ Fly around (like Minecraft)";
-  $("help3d").innerHTML = flying
-    ? "<b>Flying</b> · WASD move · Space up · Shift down · Ctrl faster · mouse to look<br><b>Left-click</b> break · <b>Right-click</b> place · <b>Middle</b> pick · <b>Scroll/1-9</b> hotbar · <b>Esc</b> stop"
-    : "<b>Left-click</b> place · <b>Right-click</b> break · <b>Middle-click</b> pick<br><b>Right-drag</b> spin · <b>Shift+right-drag</b> move · <b>Scroll</b> zoom<br><b>1-9</b> hotbar · <b>Ctrl+Z</b> undo · <b>Fly</b> button: walk around like Minecraft";
+  $("help3d").innerHTML = flying ? HELP_FLY : HELP_ORBIT;
 }
 $("flyBtn").onclick = () => {
   if (flying) { setFlying(false); return; }
   setFlying(true);
+  $("flyBtn").blur(); // otherwise Space would press the button again
   try { const p = canvas.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) {}
-  canvas.focus();
 };
 let hadLock = false;
 document.addEventListener("pointerlockchange", () => {
   const locked = document.pointerLockElement === canvas;
+  keys.clear();
   if (hadLock && !locked) setFlying(false); // Esc released the mouse
   hadLock = locked;
 });
-canvas.addEventListener("click", () => { // clicking the view while flying grabs the mouse again
-  if (flying && document.pointerLockElement !== canvas) { try { const p = canvas.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) {} }
-});
-window.addEventListener("keydown", e => { if (e.key === "Escape" && flying) setFlying(false); });
 
-// ---------------------------------------------------------------- loop
+// ================================================================ loop
 let last = performance.now();
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   if (window.mode3d) {
-    if (flying) {
-      const sp = (keys.has("ControlLeft") ? 22 : 10) * dt;
+    if (flying && document.hasFocus()) {
+      const sp = (keys.has("ControlLeft") || keys.has("ControlRight") ? 22 : 10) * dt;
       const f = (keys.has("KeyW") ? 1 : 0) - (keys.has("KeyS") ? 1 : 0), r = (keys.has("KeyD") ? 1 : 0) - (keys.has("KeyA") ? 1 : 0);
       fly.x += (-Math.sin(fly.yaw) * f + Math.cos(fly.yaw) * r) * sp;
       fly.z += (-Math.cos(fly.yaw) * f - Math.sin(fly.yaw) * r) * sp;
@@ -1190,14 +1476,14 @@ function size3d() {
 window.addEventListener("resize", size3d);
 requestAnimationFrame(frame);
 
-// ---------------------------------------------------------------- export + tabs
+// ================================================================ export + tabs
 window.export3d = () => {
   if (!vox.size) return null;
   const b = bounds(), w = b.maxX - b.minX + 1, h = b.maxY - b.minY + 1, d = b.maxZ - b.minZ + 1;
   const ids = ["minecraft:air"], map = new Map();
   const data = new Array(w * h * d).fill(0);
   for (const [k, i] of vox) {
-    const [x, y, z] = k.split(",").map(Number);
+    const [x, y, z] = unkey(k);
     if (!map.has(i)) { map.set(i, ids.length); ids.push(P3[i].state); }
     data[(x - b.minX) + (z - b.minZ) * w + (y - b.minY) * w * d] = map.get(i);
   }
@@ -1211,20 +1497,24 @@ function setMode(m3) {
   $("main").style.display = m3 ? "none" : "";
   $("left3d").style.display = m3 ? "block" : "none";
   $("main3d").style.display = m3 ? "block" : "none";
+  if (typeof buildPalette === "function") buildPalette();
   if (m3) {
     syncPal();
     if (!hotbar.length) {
-      const pickIds = ["minecraft:oak_planks", "minecraft:stone_bricks", "minecraft:cobblestone", "minecraft:oak_log",
-        "minecraft:white_concrete", "minecraft:bricks", "minecraft:glass", "minecraft:spruce_planks", "minecraft:smooth_stone"];
+      const pickIds = ["minecraft:oak_planks", "minecraft:stone_bricks", "minecraft:oak_log", "minecraft:glass",
+        "minecraft:oak_stairs", "minecraft:oak_slab", "minecraft:cobblestone", "minecraft:white_concrete", "minecraft:oak_fence"];
       hotbar = pickIds.map(id => stateIdx.get(id)).filter(i => i !== undefined);
       while (hotbar.length < 9) hotbar.push(hotbar.length % Math.max(1, P3.length));
     }
     listSchematics();
     size3d();
     if (!vox.size) resetView();
+    toolHint();
     drawHotbar();
     info();
   } else {
+    setFlying(false);
+    if (typeof resize === "function") { resize(); if (window.has2d()) fit(); } // the picture view was hidden (zero size) while in 3D
     if (typeof stats === "function") { stats(); $("send").disabled = $("download").disabled = !window.has2d(); }
   }
 }

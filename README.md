@@ -1,6 +1,6 @@
 <p align="center"><img src="logo.png" width="128" alt="Magma Client logo"></p>
 
-# Magma Client v1.8.0
+# Magma Client v1.9.0
 
 A client-side utility mod for **Minecraft 1.21.1 (NeoForge 21.1.259+)**: an auto miner that never digs into lava, safe Goto, a structure finder, X-Ray and more, with a clean menu on **Right Shift**.
 
@@ -36,7 +36,7 @@ Start typing anywhere to search. Tab switches pages. In chat, `.toggle <module>`
 | **Base** | Saves your base location (**Set here** or type X/Y/Z). Turn it on, or type `.base`, to walk home. Goto's **Base** button and `.goto base` use it, and AutoMiner can **Return To Base When Full**. `.base set` saves where you stand. |
 | **AutoFind** | Finds a fortress, bastion, village, stronghold and more by their blocks, then walks there. Explores in a spiral, skips structures you've visited, and has **Find Next**. |
 | **Builder** | Builds schematics for you. `.build <name>` loads a `.schem` / `.litematic` / `.nbt` from `.minecraft/schematics` as a see-through ghost. **Hold a stick:** right-click moves it, left-click rotates it, arrow keys (or Shift+scroll) nudge it, PgUp/PgDn raise/lower it. Then `.build start`: it builds bottom-up, faces every block the right way, pillars or (in creative) flies into reach, scaffolds floating blocks and removes the scaffolding. The panel shows missing materials. `.build stop` pauses, `.build clear` removes it. |
-| **Builder Studio** | `.build editor` (or Builder → Open editor) opens a website on your PC. **Picture tab:** paste/drop a picture, pick size, wall or floor and which blocks to use (real block colours), then paint/fill/swap to touch it up. **3D Editor tab:** edit in 3D like Minecraft — open any schematic from your game, turn the picture into blocks, or start empty; left-click place, right-click break, middle-click pick, hotbar 1-9, a layer slider to see inside, undo, and a **Fly** mode (WASD + mouse). **Send to Minecraft** shows it in your game ready to place; **Download** saves a `.schem`. |
+| **Builder Studio** | `.build editor` (or Builder → Open editor) opens a website on your PC. **Picture tab:** paste/drop a picture, pick size, wall or floor and which blocks to use (real block colours), adjust brightness/contrast/colour, remove the background, choose Flat/Pattern/Smooth shading, then paint/fill/swap to touch it up. **3D Editor tab:** edit in 3D like Minecraft with every block (glass, stairs, slabs, fences, plants...) — open any schematic from your game, turn the picture into blocks, or start empty; right-click place, left-click break, middle-click pick, blocks face the way you look; **Box / Walls / Line / Replace** tools fill floors, ceilings and walls in two clicks; hotbar 1-9, a layer slider to see inside, undo, and a **Fly** mode (WASD + mouse). **Send to Minecraft** shows it in your game ready to place; **Download** saves a `.schem`. |
 | **Fly** | Fly in any game mode with a speed slider (1 = vanilla creative). Landing after you switch it off is safe. |
 | **NoFall** | No fall damage. |
 | **Freecam** | Detach the camera and fly around (through walls) to look at your surroundings; your character stays put and is outlined. |

@@ -220,57 +220,6 @@ public final class EditorServer {
         }
     }
 
-    private static final Map<Block, JsonObject> TEX_CACHE = new java.util.HashMap<>();
-
-    /** state string, block id, name, average colour and front texture of any block (game thread only). */
-    private static JsonObject describe(BlockState s) {
-        JsonObject o = new JsonObject();
-        o.addProperty("state", net.minecraft.commands.arguments.blocks.BlockStateParser.serialize(s));
-        ResourceLocation id = BuiltInRegistries.BLOCK.getKey(s.getBlock());
-        o.addProperty("id", id.toString());
-        o.addProperty("name", s.getBlock().getName().getString());
-        JsonObject t = TEX_CACHE.computeIfAbsent(s.getBlock(), b -> texture(b.defaultBlockState()));
-        o.add("rgb", t.get("rgb"));
-        o.addProperty("tex", t.get("tex").getAsString());
-        return o;
-    }
-
-    /** {rgb, tex} for a block's front face; a grey square when it has no usable texture. */
-    private static JsonObject texture(BlockState s) {
-        JsonObject o = new JsonObject();
-        try {
-            Minecraft mc = Minecraft.getInstance();
-            var model = mc.getBlockRenderer().getBlockModel(s);
-            List<BakedQuad> quads = model.getQuads(s, Direction.NORTH, RandomSource.create(0));
-            if (quads.isEmpty()) quads = model.getQuads(s, null, RandomSource.create(0));
-            TextureAtlasSprite sprite = quads.isEmpty() ? model.getParticleIcon() : quads.get(0).getSprite();
-            ResourceLocation tex = sprite.contents().name();
-            var res = mc.getResourceManager().getResource(ResourceLocation.fromNamespaceAndPath(tex.getNamespace(), "textures/" + tex.getPath() + ".png"));
-            if (res.isPresent()) {
-                try (InputStream in = res.get().open(); NativeImage img = NativeImage.read(in);
-                     NativeImage frame = new NativeImage(img.getWidth(), img.getWidth(), false)) {
-                    long r = 0, g = 0, b = 0, n = 0;
-                    for (int y = 0; y < frame.getHeight(); y++) for (int x = 0; x < frame.getWidth(); x++) {
-                        int abgr = img.getPixelRGBA(x, Math.min(y, img.getHeight() - 1));
-                        frame.setPixelRGBA(x, y, abgr);
-                        if ((abgr >>> 24) < 128) continue;
-                        r += abgr & 0xFF; g += (abgr >> 8) & 0xFF; b += (abgr >> 16) & 0xFF; n++;
-                    }
-                    JsonArray rgb = new JsonArray();
-                    rgb.add(n == 0 ? 128 : (int) (r / n)); rgb.add(n == 0 ? 128 : (int) (g / n)); rgb.add(n == 0 ? 128 : (int) (b / n));
-                    o.add("rgb", rgb);
-                    o.addProperty("tex", "data:image/png;base64," + Base64.getEncoder().encodeToString(frame.asByteArray()));
-                    return o;
-                }
-            }
-        } catch (Exception ignored) {}
-        JsonArray rgb = new JsonArray();
-        rgb.add(128); rgb.add(128); rgb.add(128);
-        o.add("rgb", rgb);
-        o.addProperty("tex", "");
-        return o;
-    }
-
     private static void send(HttpExchange ex, int code, String type, byte[] body) throws IOException {
         ex.getResponseHeaders().set("Content-Type", type);
         ex.getResponseHeaders().set("Cache-Control", "no-store");
@@ -313,60 +262,20 @@ public final class EditorServer {
 
     // ------------------------------------------------------------------ palette
 
-    /** Every full, solid, placeable block with its front texture and average colour. */
+
+    // ------------------------------------------------------------------ block info for the editor
+
+    /** Every placeable block: texture, colour, shape and how it can face. */
     private static String buildPalette() {
-        Minecraft mc = Minecraft.getInstance();
         JsonArray out = new JsonArray();
-        RandomSource rand = RandomSource.create(0);
         for (Block b : BuiltInRegistries.BLOCK) {
             try {
-                BlockState s = b.defaultBlockState();
-                ResourceLocation id = BuiltInRegistries.BLOCK.getKey(b);
-                String path = id.getPath();
-                if (b.asItem() == Items.AIR || s.hasBlockEntity() || b instanceof FallingBlock) continue;
-                if (!s.isSolidRender(EmptyBlockGetter.INSTANCE, BlockPos.ZERO)) continue;
-                if (path.contains("ore") && !path.contains("core") || path.contains("infested") || path.contains("command")
-                        || path.contains("structure") || path.contains("jigsaw") || path.contains("bedrock") || path.contains("budding")
-                        || path.contains("spawner") || path.contains("barrier") || path.contains("reinforced") || path.contains("trial")
-                        || path.contains("vault") || path.contains("redstone_lamp") || path.contains("tnt")) continue;
-                var model = mc.getBlockRenderer().getBlockModel(s);
-                List<BakedQuad> quads = model.getQuads(s, Direction.NORTH, rand);
-                TextureAtlasSprite sprite = quads.isEmpty() ? model.getParticleIcon() : quads.get(0).getSprite();
-                ResourceLocation tex = sprite.contents().name();
-                var res = mc.getResourceManager().getResource(ResourceLocation.fromNamespaceAndPath(tex.getNamespace(), "textures/" + tex.getPath() + ".png"));
-                if (res.isEmpty()) continue;
-                byte[] png;
-                int[] avg;
-                try (InputStream in = res.get().open(); NativeImage img = NativeImage.read(in)) {
-                    int size = img.getWidth(); // animated textures are a vertical strip: use the first frame
-                    long r = 0, g = 0, bl = 0, n = 0;
-                    try (NativeImage frame = new NativeImage(size, size, false)) {
-                        for (int y = 0; y < size; y++) for (int x = 0; x < size; x++) {
-                            int abgr = img.getPixelRGBA(x, Math.min(y, img.getHeight() - 1));
-                            frame.setPixelRGBA(x, y, abgr | 0xFF000000);
-                            if ((abgr >>> 24) < 128) continue;
-                            r += abgr & 0xFF;
-                            g += (abgr >> 8) & 0xFF;
-                            bl += (abgr >> 16) & 0xFF;
-                            n++;
-                        }
-                        if (n == 0) continue;
-                        avg = new int[]{(int) (r / n), (int) (g / n), (int) (bl / n)};
-                        png = frame.asByteArray();
-                    }
-                }
-                // tinted textures (grass, leaves) are grey on disk: skip them, the colour would be wrong
-                if (quads.stream().anyMatch(BakedQuad::isTinted)) continue;
-                JsonObject o = new JsonObject();
-                o.addProperty("id", id.toString());
-                o.addProperty("state", id.toString());
-                o.addProperty("name", b.getName().getString());
-                JsonArray rgb = new JsonArray();
-                for (int c : avg) rgb.add(c);
-                o.add("rgb", rgb);
-                o.addProperty("group", group(path));
-                o.addProperty("tex", "data:image/png;base64," + Base64.getEncoder().encodeToString(png));
-                out.add(o);
+                if (b.asItem() == Items.AIR || b instanceof net.minecraft.world.level.block.LiquidBlock) continue;
+                String path = BuiltInRegistries.BLOCK.getKey(b).getPath();
+                if (path.contains("command_block") || path.startsWith("structure_") || path.equals("jigsaw") || path.equals("barrier")
+                        || path.equals("light") || path.equals("debug_stick") || path.contains("piston_head") || path.equals("moving_piston")) continue;
+                JsonObject o = entry(b.defaultBlockState());
+                if (o != null) out.add(o);
             } catch (Exception ignored) {
                 // a modded block with an unusual model: just leave it out
             }
@@ -374,16 +283,139 @@ public final class EditorServer {
         return out.toString();
     }
 
-    private static String group(String p) {
+    private static final Map<Block, JsonObject> TEX_CACHE = new java.util.HashMap<>();
+
+    /** Everything the editor needs to show and place one block state (game thread only). */
+    private static JsonObject describe(BlockState s) {
+        JsonObject o = entry(s);
+        if (o != null) return o;
+        o = new JsonObject();
+        o.addProperty("state", net.minecraft.commands.arguments.blocks.BlockStateParser.serialize(s));
+        o.addProperty("id", BuiltInRegistries.BLOCK.getKey(s.getBlock()).toString());
+        o.addProperty("name", s.getBlock().getName().getString());
+        JsonArray rgb = new JsonArray(); rgb.add(128); rgb.add(128); rgb.add(128);
+        o.add("rgb", rgb);
+        o.addProperty("tex", "");
+        o.addProperty("shape", "full");
+        o.addProperty("group", "Other");
+        return o;
+    }
+
+    private static JsonObject entry(BlockState s) {
+        Block b = s.getBlock();
+        JsonObject t = TEX_CACHE.computeIfAbsent(b, k -> texture(k.defaultBlockState()));
+        if (t == null) return null;
+        String path = BuiltInRegistries.BLOCK.getKey(b).getPath();
+        JsonObject o = new JsonObject();
+        o.addProperty("id", BuiltInRegistries.BLOCK.getKey(b).toString());
+        o.addProperty("state", s == b.defaultBlockState() ? BuiltInRegistries.BLOCK.getKey(b).toString()
+                : net.minecraft.commands.arguments.blocks.BlockStateParser.serialize(s));
+        o.addProperty("name", b.getName().getString());
+        o.add("rgb", t.get("rgb"));
+        o.addProperty("tex", t.get("tex").getAsString());
+        o.addProperty("noise", t.get("noise").getAsDouble());
+        o.addProperty("see", t.get("see").getAsBoolean());
+        BlockState d = b.defaultBlockState();
+        boolean solid = d.isSolidRender(EmptyBlockGetter.INSTANCE, BlockPos.ZERO);
+        // good for pixel art: plain full blocks that stay put and look the same from the front
+        boolean art = solid && !d.hasBlockEntity() && !(b instanceof FallingBlock) && !t.get("tinted").getAsBoolean()
+                && !(path.contains("ore") && !path.contains("core")) && !path.contains("infested") && !path.contains("bedrock")
+                && !path.contains("budding") && !path.contains("spawner") && !path.contains("reinforced") && !path.contains("trial")
+                && !path.contains("vault") && !path.contains("redstone_lamp") && !path.contains("tnt") && !path.contains("_log")
+                && !path.contains("pumpkin") && !path.contains("furnace") && !path.contains("observer") && !path.contains("dispenser")
+                && !path.contains("dropper") && !path.contains("table") && !path.contains("loom") && !path.contains("beehive");
+        o.addProperty("art", art);
+        // shape, so stairs/slabs/fences look right in the 3D view
+        String shape;
+        if (b instanceof net.minecraft.world.level.block.SlabBlock) shape = "slab";
+        else if (b instanceof net.minecraft.world.level.block.StairBlock) shape = "stairs";
+        else if (b instanceof net.minecraft.world.level.block.FenceBlock || b instanceof net.minecraft.world.level.block.WallBlock
+                || b instanceof net.minecraft.world.level.block.IronBarsBlock) shape = "post";
+        else if (solid || d.isCollisionShapeFullBlock(EmptyBlockGetter.INSTANCE, BlockPos.ZERO)) shape = "full";
+        else {
+            var vs = d.getShape(EmptyBlockGetter.INSTANCE, BlockPos.ZERO);
+            if (vs.isEmpty()) shape = "small";
+            else {
+                var bb = vs.bounds();
+                shape = "box";
+                JsonArray box = new JsonArray();
+                box.add(bb.minX); box.add(bb.minY); box.add(bb.minZ); box.add(bb.maxX); box.add(bb.maxY); box.add(bb.maxZ);
+                o.add("box", box);
+            }
+        }
+        o.addProperty("shape", shape);
+        // how it turns when placed
+        if (d.hasProperty(net.minecraft.world.level.block.state.properties.BlockStateProperties.AXIS)) o.addProperty("turn", "axis");
+        else if (d.hasProperty(net.minecraft.world.level.block.state.properties.BlockStateProperties.HORIZONTAL_FACING)) o.addProperty("turn", b instanceof net.minecraft.world.level.block.StairBlock ? "look" : "face");
+        else if (d.hasProperty(net.minecraft.world.level.block.state.properties.BlockStateProperties.FACING)) o.addProperty("turn", "face6");
+        o.addProperty("group", group(path, b, shape));
+        return o;
+    }
+
+    /** {rgb, tex, noise, tinted, see} for a block's front texture; null when it has none. */
+    private static JsonObject texture(BlockState s) {
+        try {
+            Minecraft mc = Minecraft.getInstance();
+            var model = mc.getBlockRenderer().getBlockModel(s);
+            RandomSource rand = RandomSource.create(0);
+            List<BakedQuad> quads = model.getQuads(s, Direction.NORTH, rand);
+            if (quads.isEmpty()) quads = model.getQuads(s, null, rand);
+            TextureAtlasSprite sprite = quads.isEmpty() ? model.getParticleIcon() : quads.get(0).getSprite();
+            boolean tinted = !quads.isEmpty() && quads.get(0).isTinted();
+            ResourceLocation tex = sprite.contents().name();
+            var res = mc.getResourceManager().getResource(ResourceLocation.fromNamespaceAndPath(tex.getNamespace(), "textures/" + tex.getPath() + ".png"));
+            if (res.isEmpty()) return null;
+            try (InputStream in = res.get().open(); NativeImage img = NativeImage.read(in);
+                 NativeImage frame = new NativeImage(img.getWidth(), img.getWidth(), false)) {
+                long r = 0, g = 0, bl = 0, n = 0, clear = 0;
+                double sum = 0, sumSq = 0;
+                for (int y = 0; y < frame.getHeight(); y++) for (int x = 0; x < frame.getWidth(); x++) {
+                    int abgr = img.getPixelRGBA(x, Math.min(y, img.getHeight() - 1));
+                    int pr = abgr & 0xFF, pg = (abgr >> 8) & 0xFF, pb = (abgr >> 16) & 0xFF, pa = abgr >>> 24;
+                    if (tinted) { // leaves/grass are grey on disk: colour them like the default plains biome
+                        pr = pr * 0x59 / 255; pg = pg * 0xAE / 255; pb = pb * 0x30 / 255;
+                    }
+                    frame.setPixelRGBA(x, y, (pa << 24) | (pb << 16) | (pg << 8) | pr);
+                    if (pa < 128) { clear++; continue; }
+                    r += pr; g += pg; bl += pb; n++;
+                    double lum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
+                    sum += lum; sumSq += lum * lum;
+                }
+                JsonObject o = new JsonObject();
+                JsonArray rgb = new JsonArray();
+                rgb.add(n == 0 ? 128 : (int) (r / n)); rgb.add(n == 0 ? 128 : (int) (g / n)); rgb.add(n == 0 ? 128 : (int) (bl / n));
+                o.add("rgb", rgb);
+                double mean = n == 0 ? 0 : sum / n;
+                o.addProperty("noise", n == 0 ? 1 : Math.sqrt(Math.max(0, sumSq / n - mean * mean)) / 255.0);
+                o.addProperty("tinted", tinted);
+                o.addProperty("see", clear > 0);
+                o.addProperty("tex", "data:image/png;base64," + Base64.getEncoder().encodeToString(frame.asByteArray()));
+                return o;
+            }
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static String group(String p, Block b, String shape) {
         if (p.endsWith("_wool")) return "Wool";
         if (p.endsWith("_concrete")) return "Concrete";
         if (p.contains("glazed")) return "Glazed terracotta";
         if (p.contains("terracotta")) return "Terracotta";
+        if (p.contains("glass")) return "Glass";
+        if (shape.equals("stairs") || shape.equals("slab")) return "Stairs & slabs";
+        if (shape.equals("post") || p.contains("fence") || p.contains("_wall")) return "Fences & walls";
+        if (p.contains("door")) return "Doors";
+        if (p.contains("leaves") || p.contains("sapling") || p.contains("flower") || p.contains("grass") || p.contains("fern")
+                || p.contains("vine") || p.contains("mushroom") || p.contains("moss") || p.contains("azalea") || p.contains("tulip")
+                || p.contains("orchid") || p.contains("daisy") || p.contains("rose") || p.contains("lily") || p.contains("bush")) return "Plants";
+        if (p.contains("lantern") || p.contains("torch") || p.contains("lamp") || p.contains("glowstone") || p.contains("froglight")
+                || p.contains("candle") || p.contains("sea_lantern") || p.contains("shroomlight")) return "Lights";
         if (p.contains("planks") || p.contains("log") || p.contains("wood") || p.contains("stem") || p.contains("hyphae") || p.contains("bamboo")) return "Wood";
         if (p.contains("stone") || p.contains("deepslate") || p.contains("brick") || p.contains("andesite") || p.contains("diorite")
                 || p.contains("granite") || p.contains("tuff") || p.contains("blackstone") || p.contains("basalt") || p.contains("calcite")
                 || p.contains("prismarine") || p.contains("purpur") || p.contains("quartz") || p.contains("netherrack") || p.contains("end_stone")) return "Stone";
         if (p.contains("copper")) return "Copper";
-        return "Other";
+        return shape.equals("full") ? "Other" : "Decoration";
     }
 }
