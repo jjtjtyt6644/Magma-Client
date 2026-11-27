@@ -4,6 +4,7 @@ public enum Category {
     SAFETY("Safety", "⛨"),
     WORLD("World", "⛏"),
     MOVEMENT("Movement", "✈"),
+    COMBAT("Combat", "⚔"),
     AUTOMATION("Automation", "⟳"),
     RENDER("Render", "◉"),
     CLIENT("Client", "⚙");

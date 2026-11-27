@@ -452,6 +452,8 @@ public class Builder extends Module {
         }
         // 1) everything we can reach right now, several per tick (lowest first so nothing ends up floating)
         if (placeInReach()) return;
+        // 2) the only blocks left within reach are where our body is: get clear of them right away (this was the slow 99%)
+        if (clearOfMyBlocks()) return;
         Work w = pick();
         if (w == null) {
             if (!deferred.isEmpty()) { status = "Waiting (" + deferred.size() + " spots to retry)"; return; }
@@ -492,7 +494,7 @@ public class Builder extends Module {
         else {
             if (fails.merge(pos, 1, Integer::sum) >= 4) {
                 fails.remove(pos);
-                defer(pos, 300);
+                defer(pos, 60);
             }
         }
     }
@@ -520,11 +522,12 @@ public class Builder extends Module {
                 done++;
             } else if (fails.merge(w.pos(), 1, Integer::sum) >= 4) {
                 fails.remove(w.pos());
-                defer(w.pos(), 300);
+                defer(w.pos(), 60);
             }
         }
         if (done == 0) return false;
         stopMoving();
+        mc.options.keyJump.setDown(false);
         status = "Placing (" + toPlaceLeft() + " left)";
         cooldown = mc.player.getAbilities().instabuild ? 0 : 1;
         return true;
@@ -539,6 +542,39 @@ public class Builder extends Module {
         AABB now = mc.player.getBoundingBox().inflate(0.03); // a hair stricter than the server, never looser
         AABB before = now.move(mc.player.xo - mc.player.getX(), mc.player.yo - mc.player.getY(), mc.player.zo - mc.player.getZ());
         return now.intersects(spot) || before.intersects(spot);
+    }
+
+    /**
+     * Blocks we could place right now except that we're standing in them (usually the last few at the end):
+     * fly up above them in creative, or jump so they go in underneath us (pillaring) in survival.
+     */
+    private boolean clearOfMyBlocks() {
+        int top = Integer.MIN_VALUE;
+        for (Work w : todo) {
+            if (w.breakIt() || deferred.containsKey(w.pos()) || !inReach(w.pos()) || !inTheWay(w.pos())) continue;
+            if (!hasItem(w.target().getBlock().asItem())) continue;
+            top = Math.max(top, w.pos().getY());
+        }
+        if (top == Integer.MIN_VALUE) return false;
+        stopMovingGoto();
+        status = "Getting out of the way";
+        double want = top + 1.15; // feet just above the highest one
+        if (mc.player.getAbilities().mayfly) {
+            mc.player.getAbilities().flying = true;
+            double dy = want - mc.player.getY();
+            mc.player.setDeltaMovement(mc.player.getDeltaMovement().x * 0.5, dy > 0 ? Math.max(0.2, Math.min(0.6, dy * 0.6)) : 0,
+                    mc.player.getDeltaMovement().z * 0.5);
+        } else {
+            mc.options.keyJump.setDown(true); // jump: they get placed under us at the top of the jump
+        }
+        return true;
+    }
+
+    /** Cancel a walk without touching jump/forward (used while hopping out of the way). */
+    private void stopMovingGoto() {
+        AutoMiner am = ModuleManager.get(AutoMiner.class);
+        if (moveGoal != null && am.getGotoTarget() != null) am.cancelGoto();
+        moveGoal = null;
     }
 
     private int toPlaceLeft() {

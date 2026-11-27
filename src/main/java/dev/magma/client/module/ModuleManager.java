@@ -25,6 +25,11 @@ public final class ModuleManager {
         MODULES.add(new Fly());
         MODULES.add(new NoFall());
         MODULES.add(new Freecam());
+        MODULES.add(new Scaffold());
+        MODULES.add(new FastPlace());
+        MODULES.add(new VeinMiner());
+        MODULES.add(new PlayerEsp());
+        MODULES.add(new AutoCombat());
         MODULES.add(new VillagerRoller());
         MODULES.add(new FastBreak());
         MODULES.add(new AutoTool());

@@ -9,7 +9,8 @@
     "MovePacketAccessor",
     "ClientCommonPacketListenerMixin",
     "EntityTurnMixin",
-    "GuiCameraPlayerMixin"
+    "GuiCameraPlayerMixin",
+    "MinecraftAccessor"
   ],
   "injectors": {
     "defaultRequire": 0

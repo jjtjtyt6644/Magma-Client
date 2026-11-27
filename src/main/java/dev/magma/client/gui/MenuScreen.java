@@ -55,6 +55,7 @@ public class MenuScreen extends Screen {
         PAGES.add(new Page("Safety", "Lava protection", Category.SAFETY.icon, Category.SAFETY));
         PAGES.add(new Page("World", "Auto mining", Category.WORLD.icon, Category.WORLD));
         PAGES.add(new Page("Movement", "Fly, no fall, freecam", Category.MOVEMENT.icon, Category.MOVEMENT));
+        PAGES.add(new Page("Combat", "Auto fighting, player ESP", Category.COMBAT.icon, Category.COMBAT));
         PAGES.add(new Page("Automation", "Villager rolling, fast break, tools, food", Category.AUTOMATION.icon, Category.AUTOMATION));
         PAGES.add(new Page("Render", "X-Ray and vision", Category.RENDER.icon, Category.RENDER));
         PAGES.add(new Page("Client", "HUD and menu", Category.CLIENT.icon, Category.CLIENT));
@@ -79,6 +80,10 @@ public class MenuScreen extends Screen {
     private final Anim.Clock clock = new Anim.Clock();
 
     private float open, pageAnim = 1f, navY = -1;
+    /** When the current page appeared (rows cascade in from here) and which row is being drawn. */
+    private long pageShownAt = System.currentTimeMillis();
+    private int rowSeq;
+    private static final Map<String, Long> FLASH = new HashMap<>();
     private boolean closing;
     private float scroll, scrollTarget, contentH, viewH;
     private float clipX, clipY, clipW, clipH;
@@ -209,6 +214,13 @@ public class MenuScreen extends Screen {
         float W = Math.min(560, width - 40), H = Math.min(330, height - 40);
         float wx = Math.round((width - W) / 2f), wy = Math.round((height - H) / 2f + (1 - alpha) * 10);
 
+        // springs open: a slight zoom with a little overshoot
+        float sc = 0.94f + 0.06f * easeOutBack(open);
+        g.pose().pushPose();
+        g.pose().translate(wx + W / 2f, wy + H / 2f, 0);
+        g.pose().scale(sc, sc, 1f);
+        g.pose().translate(-(wx + W / 2f), -(wy + H / 2f), 0);
+        rowSeq = 0;
         Render2D.shadow(g, wx, wy, W, H, R, 10, a(0x80000000));
         Render2D.roundedRect(g, wx, wy, W, H, R, a(WIN));
         Render2D.roundedRect(g, wx, wy, SIDEBAR, H, R, a(SIDE));
@@ -219,6 +231,7 @@ public class MenuScreen extends Screen {
 
         drawSidebar(g, wx, wy, H);
         drawContent(g, wx + SIDEBAR + 1, wy, W - SIDEBAR - 1, H);
+        g.pose().popPose();
 
         // delayed, small tooltip
         if (tooltip != null && cfg().descriptions.get() && slider == null && System.currentTimeMillis() - hoverSince > 350) drawTooltip(g, tooltip);
@@ -236,15 +249,18 @@ public class MenuScreen extends Screen {
         Render2D.gradientText(g, MagmaClient.NAME, lx + 19, ly + 2, alpha, false);
 
         float ny = y + 36;
-        float targetY = ny + page * (NAV_H + NAV_GAP);
+        // more pages than fit: squeeze the spacing so the last one never runs into the footer
+        float step = Math.min(NAV_H + NAV_GAP, (h - 36 - 30) / PAGES.size());
+        float navH = Math.min(NAV_H, step - 1);
+        float targetY = ny + page * step;
         if (navY < 0) navY = targetY;
         navY = Anim.approach(navY, targetY, dt * 16f);
-        Render2D.roundedRect(g, x + 6, navY, SIDEBAR - 12, NAV_H, 4, a(0x14FFFFFF));
-        Render2D.roundedRect(g, x + 6, navY + 4, 2, NAV_H - 8, 1, a(Theme.accent()));
+        Render2D.roundedRect(g, x + 6, navY, SIDEBAR - 12, navH, 4, a(0x14FFFFFF));
+        Render2D.roundedRect(g, x + 6, navY + 4, 2, navH - 8, 1, a(Theme.accent()));
 
         for (int i = 0; i < PAGES.size(); i++) {
             Page p = PAGES.get(i);
-            float iy = ny + i * (NAV_H + NAV_GAP);
+            float iy = ny + i * step;
             if (i == PAGES.size() - 1) {
                 // divider before Appearance
                 Render2D.rect(g, x + 12, iy - 1, SIDEBAR - 24, 1, a(BORDER));
@@ -252,19 +268,19 @@ public class MenuScreen extends Screen {
             Object key = "nav:" + i;
             float hv = anim(key, hov(key) ? 1 : 0, 16);
             boolean sel = i == page;
-            if (!sel && hv > 0.01f) Render2D.roundedRect(g, x + 6, iy, SIDEBAR - 12, NAV_H, 4, a(ColorUtil.mulAlpha(0x0AFFFFFF, hv)));
-            text(g, p.icon, x + 14, iy + 5, sel ? Theme.accent() : 0xFF5C6373);
-            text(g, p.title, x + 27, iy + 5, sel ? Theme.TEXT : ColorUtil.lerp(0xFF8B92A1, Theme.TEXT, hv));
+            if (!sel && hv > 0.01f) Render2D.roundedRect(g, x + 6, iy, SIDEBAR - 12, navH, 4, a(ColorUtil.mulAlpha(0x0AFFFFFF, hv)));
+            text(g, p.icon, x + 14, iy + (navH - 8) / 2f, sel ? Theme.accent() : 0xFF5C6373);
+            text(g, p.title, x + 27, iy + (navH - 8) / 2f, sel ? Theme.TEXT : ColorUtil.lerp(0xFF8B92A1, Theme.TEXT, hv));
             if (p.cat != null) {
                 int on = 0;
                 for (Module m : ModuleManager.byCategory(p.cat)) if (m.isEnabled()) on++;
                 if (on > 0) {
                     String c = String.valueOf(on);
-                    text(g, c, x + SIDEBAR - 14 - font.width(c), iy + 5, sel ? Theme.accent() : 0xFF5C6373);
+                    text(g, c, x + SIDEBAR - 14 - font.width(c), iy + (navH - 8) / 2f, sel ? Theme.accent() : 0xFF5C6373);
                 }
             }
             final int idx = i;
-            hit(x + 6, iy, SIDEBAR - 12, NAV_H, key, b -> switchPage(idx), null);
+            hit(x + 6, iy, SIDEBAR - 12, navH, key, b -> switchPage(idx), null);
         }
 
         // footer
@@ -280,8 +296,15 @@ public class MenuScreen extends Screen {
         text(g, "v" + MagmaClient.VERSION, x + SIDEBAR - 12 - font.width("v" + MagmaClient.VERSION), fy + 4, 0xFF3E4452);
     }
 
+    private static float easeOutBack(float t) {
+        t = Math.max(0, Math.min(1, t));
+        float c1 = 1.70158f, c3 = c1 + 1, u = t - 1;
+        return 1 + c3 * u * u * u + c1 * u * u;
+    }
+
     private void switchPage(int idx) {
         if (idx == page) return;
+        pageShownAt = System.currentTimeMillis();
         PAGE_SCROLL[page] = scrollTarget;
         page = idx;
         pageAnim = 0;
@@ -671,6 +694,34 @@ public class MenuScreen extends Screen {
     }
 
     private float drawModuleRow(GuiGraphics g, Module m, float x, float y, float w) {
+        // rows slide in one after another when a page opens
+        int idx = rowSeq++;
+        float t = ((System.currentTimeMillis() - pageShownAt) / 1000f - idx * 0.035f) / 0.22f;
+        float ra = Anim.easeOutCubic(t);
+        float saved = alpha;
+        alpha *= Math.max(0, ra);
+        float rx = x + (1 - ra) * 12;
+        float out;
+        try {
+            out = drawModuleRowInner(g, m, rx, y, w);
+        } finally {
+            alpha = saved;
+        }
+        // a ripple of accent colour when it's switched on/off
+        Long f = FLASH.get(m.getName());
+        if (f != null) {
+            float e = (System.currentTimeMillis() - f) / 380f;
+            if (e >= 1) FLASH.remove(m.getName());
+            else {
+                float grow = Anim.easeOutCubic(e) * 4;
+                Render2D.roundedOutline(g, rx - grow, y - grow, w + grow * 2, ROW + grow * 2, ROW_R + grow, 1.5f,
+                        ColorUtil.mulAlpha(Theme.accent(), (1 - e) * alpha));
+            }
+        }
+        return out;
+    }
+
+    private float drawModuleRowInner(GuiGraphics g, Module m, float x, float y, float w) {
         Object key = "card:" + m.getName();
         float hv = anim(key, hov(key) ? 1 : 0, 16);
         float on = anim("on:" + m.getName(), m.isEnabled() ? 1 : 0, 14);
@@ -704,7 +755,7 @@ public class MenuScreen extends Screen {
 
         chit(x, y, w, ROW, key, b -> {
             if (b == 0 && menuModule) toggleExpand(m);
-            else if (b == 0) { m.toggle(); ConfigManager.save(); }
+            else if (b == 0) { m.toggle(); ConfigManager.save(); FLASH.put(m.getName(), System.currentTimeMillis()); }
             else if (b == 1) toggleExpand(m);
             else if (b == 2) binding = m;
         }, m.getDescription() + "  ·  right-click: settings  ·  middle-click: bind");

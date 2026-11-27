@@ -1,6 +1,6 @@
 <p align="center"><img src="logo.png" width="128" alt="Magma Client logo"></p>
 
-# Magma Client v1.10.0
+# Magma Client v1.11.0
 
 A client-side utility mod for **Minecraft 1.21.1 (NeoForge 21.1.259+)**: an auto miner that never digs into lava, safe Goto, a structure finder, X-Ray and more, with a clean menu on **Right Shift**.
 
@@ -21,7 +21,7 @@ Magma updates itself from this repo's Releases. When a new version is out, a ban
 
 ## The menu (Right Shift)
 - **Home**: quick actions (**Start mining**, **Go to coordinates**, **Find a structure**), the cheats that are on right now, and live status.
-- **Safety / World / Movement / Automation / Render / Client**: one row per module. Click to toggle, ▾ for its settings, middle-click to bind a key. Each module shows only its key settings; **Show advanced settings** reveals the rest. **Add-ons** suggests modules that work well together.
+- **Safety / World / Movement / Combat / Automation / Render / Client**: one row per module. Click to toggle, ▾ for its settings, middle-click to bind a key. Each module shows only its key settings; **Show advanced settings** reveals the rest. **Add-ons** suggests modules that work well together.
 - **Settings**: theme, menu style, menu key and updates.
 
 Start typing anywhere to search. Tab switches pages. In chat, `.toggle <module>` (or `.t fly`) switches any module.
@@ -41,8 +41,13 @@ Start typing anywhere to search. Tab switches pages. In chat, `.toggle <module>`
 | **NoFall** | No fall damage. |
 | **Freecam** | Detach the camera and fly around (through walls) to look at your surroundings; your character stays put and is outlined. |
 | **X-Ray** | See-through ore blocks with a glow, for all vanilla and modded ores. |
+| **Scaffold** | Places blocks under your feet as you walk off edges (safe, fast bridging); hold jump to tower up. |
+| **FastPlace** | No 4-tick delay between block placements. |
+| **VeinMiner** | Mine one ore or log and it mines the rest of the vein or tree in reach (TreeCapitator). |
+| **PlayerESP** | Other players through walls: boxes (red when close) and tracers. |
+| **AutoCombat** | Hit-and-run fighting: steps in when your attack is fully charged, hits at the edge of reach, backs off out of reach and circles. Players and/or monsters. |
 | **InvCleaner** | Caps junk stacks and throws extras out so ores fit. |
-| **VillagerRoller** | Re-rolls a librarian until it sells the book you want. |
+| **VillagerRoller** | Re-rolls any villager (it reads the job block: lectern, composter, smoker...) until it offers what you want: tick as many books as you like for librarians, or type items for any job. |
 | **AutoTool / AutoEat / FastBreak / AutoWalk / Fullbright / HUD** | Quality-of-life helpers. |
 
 ## Build

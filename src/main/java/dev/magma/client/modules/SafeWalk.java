@@ -93,7 +93,8 @@ public class SafeWalk extends Module {
             air++;
             b = b.below();
         }
-        if ((edges.get() || autoMiner) && air > limit) return "drop of " + air + (air >= 32 ? "+" : "") + " blocks";
+        boolean scaffold = !autoMiner && ModuleManager.get(Scaffold.class).isEnabled(); // Scaffold fills the gap: walking off is fine
+        if ((edges.get() && !scaffold || autoMiner) && air > limit) return "drop of " + air + (air >= 32 ? "+" : "") + " blocks";
         if (air == 0 && checkLava && hurtFloor(c.below())) return "magma/campfire floor";
         return null;
     }

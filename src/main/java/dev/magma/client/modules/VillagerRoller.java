@@ -95,23 +95,28 @@ public class VillagerRoller extends Module {
         return l.toArray(new String[0]);
     }
 
-    public final ModeSetting enchant = add(new ModeSetting("Enchantment", "The book you want the librarian to sell.", "Mending", enchantOptions()));
+    public final dev.magma.client.setting.MultiSetting enchants = add(new dev.magma.client.setting.MultiSetting("Books Wanted",
+            "Librarians: stop when any of these books shows up (pick as many as you like).", java.util.List.of(enchantOptions()), "Mending"));
     public final BoolSetting maxLevel = add(new BoolSetting("Max Level Only", "Only accept the highest level (e.g. Unbreaking III).", true));
-    public final NumberSetting maxPrice = add(new NumberSetting("Max Price", "Most emeralds you're willing to pay.", 24, 5, 64, 1));
+    public final NumberSetting maxPrice = add(new NumberSetting("Max Price", "Most emeralds you're willing to pay.", 24, 1, 64, 1));
+    public final dev.magma.client.setting.TextSetting items = add(new dev.magma.client.setting.TextSetting("Items Wanted",
+            "Any job: stop when a trade has one of these (comma separated, e.g. golden carrot, bell, diamond chestplate).", "", null, 200));
     public final NumberSetting maxAttempts = add(new NumberSetting("Max Attempts", "Give up after this many rerolls.", 400, 10, 2000, 10));
     public final BoolSetting sound = add(new BoolSetting("Success Sound", "Play a sound when the trade is found.", true));
 
     private enum State { BREAK, WAIT_UNEMPLOYED, PLACE, WAIT_LIBRARIAN, OPEN, WAIT_TRADES }
 
     private State state;
-    private BlockPos lectern;
+    private BlockPos lectern;       // the villager's job block (lectern, composter, smoker...)
+    private net.minecraft.world.level.block.Block jobBlock;
+    private VillagerProfession jobProfession;
     private Villager villager;
     private int timer, attempts;
     private String status = "Idle";
     private final Deque<String> history = new ArrayDeque<>();
 
     public VillagerRoller() {
-        super("VillagerRoller", "Rerolls a librarian's trades (break/replace lectern) until it sells the book you want. Look at the lectern and enable.", Category.AUTOMATION, -1);
+        super("VillagerRoller", "Rerolls a villager's trades (breaks and replaces its job block) until it offers what you want: any books for librarians, any items for other jobs. Look at the job block and enable.", Category.AUTOMATION, -1);
         advanced(maxAttempts, sound);
     }
 
@@ -129,23 +134,25 @@ public class VillagerRoller extends Module {
         if (mc.player == null || mc.level == null) { setEnabled(false); return; }
 
         if (mc.hitResult instanceof BlockHitResult bhr && bhr.getType() == HitResult.Type.BLOCK
-                && mc.level.getBlockState(bhr.getBlockPos()).is(Blocks.LECTERN)) {
+                && professionFor(mc.level.getBlockState(bhr.getBlockPos())) != null) {
             lectern = bhr.getBlockPos();
         } else {
             BlockPos p = mc.player.blockPosition();
             double best = Double.MAX_VALUE;
             for (BlockPos b : BlockPos.betweenClosed(p.offset(-4, -2, -4), p.offset(4, 2, 4))) {
-                if (mc.level.getBlockState(b).is(Blocks.LECTERN) && b.distSqr(p) < best) {
+                if (professionFor(mc.level.getBlockState(b)) != null && b.distSqr(p) < best) {
                     best = b.distSqr(p);
                     lectern = b.immutable();
                 }
             }
         }
         if (lectern == null) {
-            Chat.info("VillagerRoller: look at (or stand next to) the lectern first.");
+            Chat.info("VillagerRoller: look at (or stand next to) the villager's job block first (lectern, composter, smoker...).");
             setEnabled(false);
             return;
         }
+        jobBlock = mc.level.getBlockState(lectern).getBlock();
+        jobProfession = professionFor(mc.level.getBlockState(lectern));
         List<Villager> vs = mc.level.getEntitiesOfClass(Villager.class, new AABB(lectern).inflate(8));
         double best = Double.MAX_VALUE;
         for (Villager v : vs) {
@@ -158,11 +165,15 @@ public class VillagerRoller extends Module {
             setEnabled(false);
             return;
         }
-        if (findHotbar(Items.LECTERN) == -1 && !mc.player.getMainHandItem().is(Items.LECTERN)) {
-            Chat.info("VillagerRoller: put a spare lectern in your hotbar (it gets picked back up each roll).");
+        boolean wantsBooks = jobProfession == VillagerProfession.LIBRARIAN && !enchants.get().isEmpty();
+        if (!wantsBooks && itemTokens().isEmpty()) {
+            Chat.info("VillagerRoller: tell it what you want first - type items in \"Items Wanted\" (e.g. golden carrot, bell)"
+                    + (jobProfession == VillagerProfession.LIBRARIAN ? " or tick some books." : "."));
+            setEnabled(false);
+            return;
         }
-        Chat.info("Rolling for " + enchant.get() + (maxLevel.get() ? " (max level)" : "") + " <= " + maxPrice.getInt() + " emeralds.");
-        state = profession() == VillagerProfession.LIBRARIAN ? State.OPEN : State.BREAK;
+        Chat.info("VillagerRoller: rolling a " + jobName() + " for " + wantedText() + " (max " + maxPrice.getInt() + " emeralds).");
+        state = profession() == jobProfession ? State.OPEN : State.BREAK;
         timer = 0;
     }
 
@@ -172,12 +183,50 @@ public class VillagerRoller extends Module {
         status = "Idle";
     }
 
+    /** The job a villager gets from this block (lectern -> librarian, composter -> farmer...), or null. */
+    private static VillagerProfession professionFor(net.minecraft.world.level.block.state.BlockState st) {
+        var poi = net.minecraft.world.entity.ai.village.poi.PoiTypes.forState(st);
+        if (poi.isEmpty()) return null;
+        for (VillagerProfession p : net.minecraft.core.registries.BuiltInRegistries.VILLAGER_PROFESSION) {
+            if (p != VillagerProfession.NONE && p.heldJobSite().test(poi.get())) return p;
+        }
+        return null;
+    }
+
+    private String jobName() {
+        return jobProfession == null ? "villager" : net.minecraft.core.registries.BuiltInRegistries.VILLAGER_PROFESSION.getKey(jobProfession).getPath();
+    }
+
+    private List<String> itemTokens() {
+        List<String> out = new java.util.ArrayList<>();
+        for (String t : items.get().split(",")) if (!t.isBlank()) out.add(t.trim().toLowerCase().replace(' ', '_'));
+        return out;
+    }
+
+    private String wantedText() {
+        List<String> parts = new java.util.ArrayList<>();
+        if (jobProfession == VillagerProfession.LIBRARIAN && !enchants.get().isEmpty())
+            parts.add(String.join(" / ", enchants.get()) + (maxLevel.get() ? " (max level)" : ""));
+        if (!itemTokens().isEmpty()) parts.add(items.get());
+        return parts.isEmpty() ? "anything" : String.join(" or ", parts);
+    }
+
     private VillagerProfession profession() {
         return villager.getVillagerData().getProfession();
     }
 
+    /** Hotbar slot holding this item; pulls it in from the rest of the inventory if needed. -1 if you have none. */
     private int findHotbar(net.minecraft.world.item.Item item) {
-        for (int i = 0; i < 9; i++) if (mc.player.getInventory().getItem(i).is(item)) return i;
+        var inv = mc.player.getInventory();
+        for (int i = 0; i < 9; i++) if (inv.getItem(i).is(item)) return i;
+        for (int i = 9; i < 36; i++) {
+            if (!inv.getItem(i).is(item)) continue;
+            int hb = inv.selected;
+            for (int k = 0; k < 9; k++) if (inv.getItem(k).isEmpty()) { hb = k; break; }
+            mc.gameMode.handleInventoryMouseClick(mc.player.inventoryMenu.containerId, i, hb,
+                    net.minecraft.world.inventory.ClickType.SWAP, mc.player);
+            return hb;
+        }
         return -1;
     }
 
@@ -197,8 +246,8 @@ public class VillagerRoller extends Module {
         switch (state) {
             case BREAK -> {
                 if (mc.screen != null) { mc.player.closeContainer(); return; }
-                status = "Breaking lectern (#" + (attempts + 1) + ")";
-                if (!mc.level.getBlockState(lectern).is(Blocks.LECTERN)) {
+                status = "Breaking " + jobBlock.getName().getString() + " (#" + (attempts + 1) + ")";
+                if (!mc.level.getBlockState(lectern).is(jobBlock)) {
                     state = State.WAIT_UNEMPLOYED;
                     timer = 0;
                     return;
@@ -218,17 +267,17 @@ public class VillagerRoller extends Module {
                 }
             }
             case PLACE -> {
-                status = "Placing lectern";
-                if (mc.level.getBlockState(lectern).is(Blocks.LECTERN)) {
+                status = "Placing " + jobBlock.getName().getString();
+                if (mc.level.getBlockState(lectern).is(jobBlock)) {
                     state = State.WAIT_LIBRARIAN;
                     timer = 0;
                     return;
                 }
                 if (timer % 6 != 1) return;
-                int slot = findHotbar(Items.LECTERN);
+                int slot = findHotbar(jobBlock.asItem());
                 if (slot == -1) {
                     if (timer > 60) {
-                        Chat.info("VillagerRoller: no lectern in hotbar.");
+                        Chat.info("VillagerRoller: no " + jobBlock.getName().getString() + " in your hotbar.");
                         setEnabled(false);
                     }
                     return; // wait for the dropped lectern to be picked up
@@ -241,8 +290,8 @@ public class VillagerRoller extends Module {
                 mc.player.swing(InteractionHand.MAIN_HAND);
             }
             case WAIT_LIBRARIAN -> {
-                status = "Waiting for librarian";
-                if (profession() == VillagerProfession.LIBRARIAN) {
+                status = "Waiting for " + jobName();
+                if (profession() == jobProfession) {
                     state = State.OPEN;
                     timer = 0;
                 } else if (timer > 300) {
@@ -270,35 +319,61 @@ public class VillagerRoller extends Module {
     }
 
     private void evaluate(MerchantScreen ms) {
-        ResourceKey<Enchantment> want = ENCHANTS.get(enchant.get());
-        String seen = "no book";
+        List<String> tokens = itemTokens();
+        boolean anyBook = enchants.get().contains("Any Max Level");
+        String seen = null;
         for (MerchantOffer offer : ms.getMenu().getOffers()) {
             ItemStack result = offer.getResult();
-            if (!result.is(Items.ENCHANTED_BOOK)) continue;
-            ItemEnchantments ench = result.get(DataComponents.STORED_ENCHANTMENTS);
-            if (ench == null) continue;
-            int price = offer.getCostA().getCount();
-            for (Object2IntMap.Entry<Holder<Enchantment>> e : ench.entrySet()) {
-                Holder<Enchantment> h = e.getKey();
-                int lvl = e.getIntValue();
-                seen = Enchantment.getFullname(h, lvl).getString() + " @" + price;
-                boolean typeOk = want == null || h.is(want);
-                boolean levelOk = !maxLevel.get() || lvl >= h.value().getMaxLevel();
-                if (typeOk && levelOk && price <= maxPrice.getInt()) {
-                    pushHistory("✔ " + seen);
-                    Chat.info("Found " + seen + " emeralds after " + (attempts + 1) + " rolls! Trade it now so the villager locks.");
-                    if (sound.get()) mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, 1f));
-                    status = "Found!";
-                    setEnabled(false);
-                    return;
+            int price = offer.getCostA().is(Items.EMERALD) ? offer.getCostA().getCount()
+                    : offer.getCostB().is(Items.EMERALD) ? offer.getCostB().getCount() : 0;
+            // books (librarians)
+            ItemEnchantments ench = result.is(Items.ENCHANTED_BOOK) ? result.get(DataComponents.STORED_ENCHANTMENTS) : null;
+            if (ench != null) {
+                for (Object2IntMap.Entry<Holder<Enchantment>> e : ench.entrySet()) {
+                    Holder<Enchantment> h = e.getKey();
+                    int lvl = e.getIntValue();
+                    String name = Enchantment.getFullname(h, lvl).getString() + " @" + price;
+                    if (seen == null) seen = name;
+                    boolean typeOk = anyBook ? lvl >= h.value().getMaxLevel() : wantsEnchant(h);
+                    boolean levelOk = !maxLevel.get() || lvl >= h.value().getMaxLevel();
+                    if (typeOk && levelOk && price <= maxPrice.getInt()) { found(name); return; }
                 }
             }
+            // anything else, by name: what they sell, or what they buy from you
+            for (ItemStack st : new ItemStack[]{result, offer.getCostA()}) {
+                if (st.isEmpty() || st.is(Items.EMERALD) || tokens.isEmpty()) continue;
+                String id = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(st.getItem()).getPath();
+                String nm = st.getHoverName().getString().toLowerCase().replace(' ', '_');
+                for (String t : tokens) {
+                    if ((id.contains(t) || nm.contains(t)) && (st == offer.getCostA() || price <= maxPrice.getInt())) {
+                        found(st.getHoverName().getString() + (price > 0 ? " @" + price : ""));
+                        return;
+                    }
+                }
+            }
+            if (seen == null && !result.is(Items.EMERALD)) seen = result.getHoverName().getString() + (price > 0 ? " @" + price : "");
         }
-        pushHistory(seen);
+        pushHistory(seen == null ? "nothing useful" : seen);
         attempts++;
         mc.player.closeContainer();
         state = State.BREAK;
         timer = 0;
+    }
+
+    private boolean wantsEnchant(Holder<Enchantment> h) {
+        for (String n : enchants.get()) {
+            ResourceKey<Enchantment> k = ENCHANTS.get(n);
+            if (k != null && h.is(k)) return true;
+        }
+        return false;
+    }
+
+    private void found(String what) {
+        pushHistory("✔ " + what);
+        Chat.info("Found " + what + " after " + (attempts + 1) + " rolls! Trade it now so the villager keeps it.");
+        if (sound.get()) mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, 1f));
+        status = "Found!";
+        setEnabled(false);
     }
 
     private void pushHistory(String s) {
