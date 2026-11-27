@@ -78,6 +78,7 @@ public final class EditorServer {
         server.createContext("/api/save", EditorServer::save);
         server.createContext("/api/fetch", EditorServer::fetch);
         server.createContext("/api/schematics", EditorServer::listSchematics);
+        server.createContext("/api/studio", EditorServer::studio);
         server.createContext("/api/schematic", EditorServer::schematic);
         server.createContext("/three.module.min.js", ex -> {
             try (InputStream in = EditorServer.class.getResourceAsStream("/assets/magmaclient/editor/three.module.min.js")) {
@@ -175,6 +176,28 @@ public final class EditorServer {
         } catch (Exception e) {
             send(ex, 400, "text/plain", String.valueOf(e.getMessage()).getBytes(StandardCharsets.UTF_8));
         }
+    }
+
+    /** The studio's autosave (picture + 3D work), kept in the game's config folder so nothing is lost. */
+    private static Path studioFile() {
+        return Minecraft.getInstance().gameDirectory.toPath().resolve("config").resolve("magma_studio.json");
+    }
+
+    /** GET /api/studio : the last session. POST /api/studio : save the current one. */
+    private static void studio(HttpExchange ex) throws IOException {
+        Path f = studioFile();
+        if ("POST".equals(ex.getRequestMethod())) {
+            if (!"1".equals(ex.getRequestHeaders().getFirst("X-Magma"))) { send(ex, 403, "text/plain", "forbidden".getBytes()); return; }
+            byte[] body = ex.getRequestBody().readNBytes(60 * 1024 * 1024);
+            Files.createDirectories(f.getParent());
+            Path tmp = f.resolveSibling("magma_studio.json.tmp");
+            Files.write(tmp, body);
+            Files.move(tmp, f, java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+            send(ex, 200, "application/json", "{\"ok\":true}".getBytes());
+            return;
+        }
+        byte[] b = Files.isRegularFile(f) ? Files.readAllBytes(f) : "{}".getBytes();
+        send(ex, 200, "application/json", b);
     }
 
     /** GET /api/schematics : the files in the schematics folder(s). */

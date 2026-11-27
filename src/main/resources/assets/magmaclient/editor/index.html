@@ -106,6 +106,7 @@ select.search{appearance:auto}
     <div class="logo">🔥 <span><b>Magma</b> Builder Studio</span></div>
     <div class="tabs"><button id="tab2d" class="on">🖼 Picture</button><button id="tab3d">🧱 3D Editor</button></div>
     <div class="spacer"></div>
+    <span class="hint" id="savedTag" title="Your work saves by itself">Autosave on</span>
     <input class="name" id="name" placeholder="Name" value="my_build" spellcheck="false">
     <button class="btn" id="download" disabled title="Save a .schem file">Download .schem</button>
     <button class="btn primary" id="send" disabled title="Save it and show it in your game">Send to Minecraft ➜</button>
@@ -305,6 +306,7 @@ async function init() {
   setCur(cur);
   $("loading").remove();
   resize();
+  await restoreSession();
 }
 
 function buildGroups() {
@@ -618,8 +620,9 @@ function drawCell(x, y, bulk) {
 }
 
 let statsTimer = 0;
-function dirtyStats() { clearTimeout(statsTimer); statsTimer = setTimeout(stats, 120); }
+function dirtyStats() { markDirty(); clearTimeout(statsTimer); statsTimer = setTimeout(stats, 120); }
 function changed() {
+  markDirty();
   draw();
   stats();
   const ok = !!grid;
@@ -848,6 +851,73 @@ function toast(msg, kind) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.className = "toast", kind === "err" ? 6000 : 4200);
 }
+
+// ---------------------------------------------------------------- autosave (nothing gets lost)
+let saveDirty = false, restoring = false;
+function markDirty() { if (!restoring) saveDirty = true; }
+function snapshot2d() {
+  if (!grid) return null;
+  const ids = [], map = new Map(), cells = new Array(grid.length);
+  for (let i = 0; i < grid.length; i++) {
+    const k = grid[i];
+    if (k < 0) { cells[i] = -1; continue; }
+    if (!map.has(k)) { map.set(k, ids.length); ids.push(PAL[k].id); }
+    cells[i] = map.get(k);
+  }
+  const src = img && img.src && img.src.length < 6e6 ? img.src : null;
+  return {W, H, orient, ids, cells, img: src, settings: {
+    width: +$("width").value, groups: [...groupsOn], plain: $("plain").checked, transp: $("transp").checked,
+    removeBg: $("removeBg").checked, dither: ditherMode, bright: +$("bright").value, contrast: +$("contrast").value,
+    sat: +$("sat").value, maxColors: +$("maxColors").value}};
+}
+function restore2d(o) {
+  if (!o || !o.cells) return;
+  const st = o.settings || {};
+  if (st.width) $("width").value = $("wnum").value = st.width;
+  if (st.groups) { groupsOn = new Set(st.groups); buildGroups(); }
+  for (const k of ["plain", "transp", "removeBg"]) if (k in st) $(k).checked = st[k];
+  for (const k of ["bright", "contrast", "sat", "maxColors"]) if (k in st) $(k).value = st[k];
+  if (st.dither) { ditherMode = st.dither; for (const b of $("ditherMode").children) b.classList.toggle("on", b.dataset.v === ditherMode); }
+  orient = o.orient || "wall";
+  for (const b of $("orient").children) b.classList.toggle("on", b.dataset.v === orient);
+  const byId = new Map(PAL.map((p, i) => [p.id, i]));
+  W = o.W; H = o.H;
+  grid = new Int16Array(W * H);
+  for (let i = 0; i < grid.length; i++) { const c = o.cells[i]; grid[i] = c < 0 ? -1 : (byId.get(o.ids[c]) ?? -1); }
+  if (o.img) { const im = new Image(); im.onload = () => { img = im; }; im.src = o.img; $("thumb").src = o.img; $("thumb").hidden = false; }
+  changed();
+  fit();
+}
+async function saveNow() {
+  if (!saveDirty || !PAL.length) return;
+  saveDirty = false;
+  const data = {v: 1, saved: Date.now(), name: $("name").value, mode3d: !!window.mode3d, d2: snapshot2d(),
+    d3: window.snapshot3d ? window.snapshot3d() : null};
+  const json = JSON.stringify(data);
+  try { localStorage.setItem("magmaStudio", json); } catch (e) {}
+  try {
+    await fetch("/api/studio", {method: "POST", headers: {"Content-Type": "application/json", "X-Magma": "1"}, body: json});
+    $("savedTag").textContent = "Saved ✓";
+  } catch (e) { saveDirty = true; $("savedTag").textContent = "Saving…"; }
+}
+setInterval(saveNow, 2500);
+window.addEventListener("beforeunload", () => { if (saveDirty) saveNow(); });
+window.markDirty = markDirty;
+async function restoreSession() {
+  let data = null;
+  try { data = await (await fetch("/api/studio")).json(); } catch (e) {}
+  if (!data || !data.v) { try { data = JSON.parse(localStorage.getItem("magmaStudio") || "null"); } catch (e) {} }
+  if (!data || !data.v) return;
+  restoring = true;
+  try {
+    if (data.name) $("name").value = data.name;
+    if (data.d2) restore2d(data.d2);
+    if (data.d3) { if (window.restore3d) window.restore3d(data.d3); else window.pending3d = data.d3; }
+    if (data.mode3d) $("tab3d").click();
+    if (data.d2 || (data.d3 && data.d3.blocks && data.d3.blocks.length)) toast("Welcome back - your last work is restored.", "ok");
+  } finally { restoring = false; }
+}
+$("name").addEventListener("input", markDirty);
 
 window.get2d = () => grid ? {W, H, grid, orient} : null;
 window.has2d = () => !!grid;
@@ -1127,12 +1197,14 @@ function set(x, y, z, v, ops) {
 }
 function commit(ops) {
   if (!ops.length) return;
+  window.markDirty && window.markDirty();
   undoS.push(ops);
   if (undoS.length > 300) undoS.shift();
   redoS = [];
   dirty = true;
 }
 function applyOps(ops, back) {
+  window.markDirty && window.markDirty();
   for (const [k, b, a] of (back ? ops.slice().reverse() : ops)) {
     const v = back ? b : a;
     if (v < 0) vox.delete(k); else vox.set(k, v);
@@ -1290,7 +1362,7 @@ function info() {
 }
 
 // ================================================================ loading things in
-function clearAll() { vox.clear(); undoS = []; redoS = []; maxLayer = Infinity; corner = null; dirty = true; }
+function clearAll() { window.markDirty && window.markDirty(); vox.clear(); undoS = []; redoS = []; maxLayer = Infinity; corner = null; dirty = true; }
 async function listSchematics() {
   try {
     const l = await (await fetch("/api/schematics")).json();
@@ -1477,6 +1549,37 @@ window.addEventListener("resize", size3d);
 requestAnimationFrame(frame);
 
 // ================================================================ export + tabs
+window.snapshot3d = () => {
+  const states = [], map = new Map(), blocks = [];
+  for (const [k, i] of vox) {
+    if (!map.has(i)) { map.set(i, states.length); states.push(P3[i].state); }
+    const [x, y, z] = unkey(k);
+    blocks.push(x, y, z, map.get(i));
+  }
+  return {states, blocks, hotbar: hotbar.map(i => P3[i] ? P3[i].state : null), slot};
+};
+function indexOfState(st) {
+  syncPal();
+  if (stateIdx.has(st)) return stateIdx.get(st);
+  const id = st.split("[")[0], base = stateIdx.get(id);
+  if (base === undefined) return -1; // a block from a mod that isn't installed any more
+  return variant(base, parseProps(st));
+}
+window.restore3d = d => {
+  if (!d || !d.blocks || !PAL.length) return;
+  const map = d.states.map(indexOfState);
+  vox.clear();
+  for (let k = 0; k < d.blocks.length; k += 4) {
+    const i = map[d.blocks[k + 3]];
+    if (i >= 0) vox.set(key(d.blocks[k], d.blocks[k + 1], d.blocks[k + 2]), i);
+  }
+  if (d.hotbar) hotbar = d.hotbar.map(st => st ? indexOfState(st) : -1).map(i => i < 0 ? undefined : i);
+  slot = d.slot || 0;
+  resetView();
+  dirty = true;
+};
+if (window.pending3d) { window.restore3d(window.pending3d); window.pending3d = null; }
+
 window.export3d = () => {
   if (!vox.size) return null;
   const b = bounds(), w = b.maxX - b.minX + 1, h = b.maxY - b.minY + 1, d = b.maxZ - b.minZ + 1;
@@ -1500,7 +1603,7 @@ function setMode(m3) {
   if (typeof buildPalette === "function") buildPalette();
   if (m3) {
     syncPal();
-    if (!hotbar.length) {
+    if (!hotbar.length || hotbar.every(h => h === undefined)) {
       const pickIds = ["minecraft:oak_planks", "minecraft:stone_bricks", "minecraft:oak_log", "minecraft:glass",
         "minecraft:oak_stairs", "minecraft:oak_slab", "minecraft:cobblestone", "minecraft:white_concrete", "minecraft:oak_fence"];
       hotbar = pickIds.map(id => stateIdx.get(id)).filter(i => i !== undefined);

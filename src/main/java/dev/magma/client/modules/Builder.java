@@ -63,6 +63,8 @@ public class Builder extends Module {
     public final BoolSetting airPlace = add(new BoolSetting("Air Place", "Place floating blocks straight into the air (no scaffolding). Works in singleplayer; some servers block it.", true));
     public final BoolSetting removeScaffold = add(new BoolSetting("Remove Scaffold", "Take the scaffolding and pillars down when finished.", true));
     public final BoolSetting preview = add(new BoolSetting("Preview", "Outline the blocks still to place.", true));
+    /** world | file | x,y,z | quarter turns | building - so the schematic survives leaving the world. Not shown in the menu. */
+    public final TextSetting saved = add(new TextSetting("Saved", "", "", null, 600).visibleWhen(() -> false));
     public final ButtonSetting loadBtn = add(new ButtonSetting("Load", "Show the schematic in front of you so you can place it (hold a stick to move it).", "Load here", () -> load(null)));
     public final ButtonSetting buildBtn = add(new ButtonSetting("Build", "Start building the loaded schematic where it's shown.", "Start building", () -> startBuilding()));
     public final ButtonSetting editorBtn = add(new ButtonSetting("Image Converter", "Open the website that turns a picture into a schematic you can edit.", "Open editor", () -> dev.magma.client.util.EditorServer.open()));
@@ -107,6 +109,8 @@ public class Builder extends Module {
         net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(this::onStickClick);
         net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(this::onStickScroll);
         net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(this::onArrowKey);
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(this::onAnyTick);
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(this::onLeave);
     }
 
     @Override public boolean persistEnabled() { return false; }
@@ -227,6 +231,7 @@ public class Builder extends Module {
     }
 
     private void afterMove() {
+        saveState();
         todo.clear();
         ghosts.clear();
         if (mc.level != null) rescan();
@@ -258,6 +263,7 @@ public class Builder extends Module {
         rescan();
         totalPlace = toPlace;
         ensureJunk();
+        saveState();
         Chat.info("Builder: building " + schem.name + " at " + origin.toShortString() + ". .build stop pauses, .build clear removes it.");
         reportMissing();
     }
@@ -274,6 +280,7 @@ public class Builder extends Module {
         breaking = null;
         PlayerControl.releaseMovement();
         status = "Preview";
+        if (!leaving) saveState(); // leaving the world isn't "stopping": keep "was building" so it carries on next time
         if (say) Chat.info("Builder: paused. .build start to continue, .build clear to remove it.");
     }
 
@@ -288,13 +295,76 @@ public class Builder extends Module {
 
     @Override
     protected void onDisable() {
+        boolean keep = leaving; // leaving the world: keep it saved for next time
         stopBuilding(false);
+        if (!keep) { saved.set(""); dev.magma.client.config.ConfigManager.save(); }
         schem = null;
         base = null;
         origin = null;
         todo.clear();
         ghosts.clear();
         status = "Idle";
+    }
+
+    // ------------------------------------------------------------------ remembering it across sessions
+
+    private boolean leaving;
+    private String restoredFor;
+
+    /** Which world this is: the save name in singleplayer, the address on a server, plus the dimension. */
+    private String lastWorldKey = "";
+
+    private String worldKey() {
+        if (mc.level == null) return lastWorldKey;
+        String w = mc.getSingleplayerServer() != null ? "sp:" + mc.getSingleplayerServer().getWorldData().getLevelName()
+                : mc.getCurrentServer() != null ? "mp:" + mc.getCurrentServer().ip : null;
+        if (w == null) return lastWorldKey; // shutting down: use what we knew while playing
+        return lastWorldKey = w + "@" + mc.level.dimension().location();
+    }
+
+    private void saveState() {
+        if (schem == null || origin == null || loadedName == null || mc.level == null) return;
+        saved.set(worldKey() + "|" + loadedName + "|" + origin.getX() + "," + origin.getY() + "," + origin.getZ() + "|" + rot + "|" + building);
+        dev.magma.client.config.ConfigManager.save();
+    }
+
+    /** Back in a world with a saved schematic: show it again exactly where it was. */
+    private void onAnyTick(net.neoforged.neoforge.client.event.ClientTickEvent.Post e) {
+        if (mc.player != null && mc.player.tickCount % 100 == 1) worldKey();
+        if (mc.player == null || mc.level == null || isEnabled() || mc.player.tickCount < 40 || mc.player.tickCount % 20 != 0) return;
+        String sv = saved.get();
+        if (sv.isBlank()) return;
+        String[] f = sv.split("\\|");
+        String wk = worldKey();
+        if (f.length < 5 || !f[0].equals(wk) || wk.equals(restoredFor)) return;
+        restoredFor = wk;
+        try {
+            Path p = Schematic.find(f[1]);
+            if (p == null) return;
+            base = Schematic.load(p);
+            loadedName = p.getFileName().toString();
+            rot = Integer.parseInt(f[3]) & 3;
+            schem = base.rotated(rotationOf(rot));
+            String[] xyz = f[2].split(",");
+            origin = new BlockPos(Integer.parseInt(xyz[0]), Integer.parseInt(xyz[1]), Integer.parseInt(xyz[2]));
+            setEnabled(true);
+            afterMove();
+            boolean wasBuilding = Boolean.parseBoolean(f[4]);
+            Chat.info("Builder: " + schem.name + " is still here at " + origin.toShortString()
+                    + (wasBuilding ? " - continuing the build (.build stop to pause)." : ". .build start to build it, .build clear to remove it."));
+            if (wasBuilding) startBuilding();
+        } catch (Exception ex) {
+            Chat.info("Builder: couldn't bring back " + f[1] + " - " + ex.getMessage());
+        }
+    }
+
+    /** Leaving the world: put it away, but keep it saved. */
+    private void onLeave(net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent.LoggingOut e) {
+        restoredFor = null;
+        if (!isEnabled()) return;
+        saveState();
+        leaving = true;
+        try { setEnabled(false); } finally { leaving = false; }
     }
 
     // ------------------------------------------------------------------ stick controls
@@ -380,6 +450,8 @@ public class Builder extends Module {
             cleanup();
             return;
         }
+        // 1) everything we can reach right now, several per tick (lowest first so nothing ends up floating)
+        if (placeInReach()) return;
         Work w = pick();
         if (w == null) {
             if (!deferred.isEmpty()) { status = "Waiting (" + deferred.size() + " spots to retry)"; return; }
@@ -406,8 +478,8 @@ public class Builder extends Module {
             return;
         }
         if (breaking != null) { mc.gameMode.stopDestroyBlock(); breaking = null; }
-        if (mc.player.getBoundingBox().intersects(new AABB(pos))) {
-            defer(pos, 40); // we're standing in it - do something else first
+        if (inTheWay((pos))) {
+            stepAside(); // we're standing where it goes: move out of the way
             return;
         }
         if (!supported(pos, w.target())) {
@@ -416,12 +488,107 @@ public class Builder extends Module {
             return;
         }
         status = "Placing " + name(w.target());
-        if (!place(pos, w.target())) {
+        if (place(pos, w.target())) todo.remove(w);
+        else {
             if (fails.merge(pos, 1, Integer::sum) >= 4) {
                 fails.remove(pos);
                 defer(pos, 300);
             }
         }
+    }
+
+    /** Place every block in reach this tick (up to a few). Returns true if it placed anything. */
+    private boolean placeInReach() {
+        if (todo.stream().anyMatch(w -> w.breakIt() && !deferred.containsKey(w.pos()))) return false; // clear blockers first
+        Vec3 eye = mc.player.getEyePosition();
+        List<Work> near = new ArrayList<>();
+        for (Work w : todo) {
+            if (w.breakIt() || deferred.containsKey(w.pos()) || !inReach(w.pos())) continue;
+            if (!hasItem(w.target().getBlock().asItem()) || !supported(w.pos(), w.target())) continue;
+            if (inTheWay((w.pos()))) continue;
+            near.add(w);
+        }
+        if (near.isEmpty()) return false;
+        near.sort(java.util.Comparator.<Work>comparingInt(w -> w.pos().getY()).thenComparingDouble(w -> eye.distanceToSqr(Vec3.atCenterOf(w.pos()))));
+        int budget = mc.player.getAbilities().instabuild ? 6 : 3;
+        int done = 0;
+        if (breaking != null) { mc.gameMode.stopDestroyBlock(); breaking = null; }
+        for (Work w : near) {
+            if (done >= budget) break;
+            if (place(w.pos(), w.target())) {
+                todo.remove(w); // done - don't try this spot again before the next rescan
+                done++;
+            } else if (fails.merge(w.pos(), 1, Integer::sum) >= 4) {
+                fails.remove(w.pos());
+                defer(w.pos(), 300);
+            }
+        }
+        if (done == 0) return false;
+        stopMoving();
+        status = "Placing (" + toPlaceLeft() + " left)";
+        cooldown = mc.player.getAbilities().instabuild ? 0 : 1;
+        return true;
+    }
+
+    /**
+     * Would our body block this spot? Checks where we are AND where we were last tick: the server only learns our new
+     * position after the click, so placing the moment we step clear gets refused.
+     */
+    private boolean inTheWay(BlockPos pos) {
+        AABB spot = new AABB(pos);
+        AABB now = mc.player.getBoundingBox().inflate(0.03); // a hair stricter than the server, never looser
+        AABB before = now.move(mc.player.xo - mc.player.getX(), mc.player.yo - mc.player.getY(), mc.player.zo - mc.player.getZ());
+        return now.intersects(spot) || before.intersects(spot);
+    }
+
+    private int toPlaceLeft() {
+        int n = 0;
+        for (Work w : todo) if (!w.breakIt()) n++;
+        return n;
+    }
+
+    /** Standing where a block goes: move to the nearest free spot that isn't part of the build. */
+    private void stepAside() {
+        Set<BlockPos> targets = new HashSet<>();
+        for (Work w : todo) if (!w.breakIt()) targets.add(w.pos());
+        BlockPos feet = mc.player.blockPosition(), best = null;
+        double bd = Double.MAX_VALUE;
+        boolean flying = mc.player.getAbilities().mayfly && mc.player.getAbilities().instabuild;
+        for (int dx = -3; dx <= 3; dx++) for (int dz = -3; dz <= 3; dz++) for (int dy = -1; dy <= (flying ? 3 : 1); dy++) {
+            BlockPos c = feet.offset(dx, dy, dz);
+            if (targets.contains(c) || targets.contains(c.above())) continue;
+            if (!mc.level.getBlockState(c).getCollisionShape(mc.level, c).isEmpty()
+                    || !mc.level.getBlockState(c.above()).getCollisionShape(mc.level, c.above()).isEmpty()) continue;
+            if (!flying && mc.level.getBlockState(c.below()).getCollisionShape(mc.level, c.below()).isEmpty()) continue;
+            double d = dx * dx + dz * dz + dy * dy * 1.5;
+            if (d > 0 && d < bd) { bd = d; best = c; }
+        }
+        status = "Stepping out of the way";
+        // the block goes where our feet are and there's headroom: just jump - it gets placed under us mid-air
+        boolean feetTarget = targets.contains(feet), headroom = mc.level.getBlockState(feet.above(2)).getCollisionShape(mc.level, feet.above(2)).isEmpty();
+        if (feetTarget && headroom && !flying) { mc.options.keyJump.setDown(true); return; }
+        if (best == null) { flyOrJump(); return; }
+        Vec3 goal = Vec3.atBottomCenterOf(best).add(0, 0.25, 0), d = goal.subtract(mc.player.position());
+        if (flying) {
+            mc.player.getAbilities().flying = true;
+            // aim a bit above the spot and hover once there: never creep up on it and end up a hair inside the block
+            if (d.length() < 0.1) mc.player.setDeltaMovement(Vec3.ZERO);
+            else mc.player.setDeltaMovement(d.normalize().scale(Math.max(0.12, Math.min(0.6, d.length() * 0.5))));
+        } else {
+            // a short hop to the side: steer straight at it
+            float yaw = (float) Math.toDegrees(Math.atan2(d.z, d.x)) - 90f;
+            PlayerControl.rotate(yaw, mc.player.getXRot(), 30f);
+            mc.options.keyUp.setDown(d.horizontalDistance() > 0.25);
+            mc.options.keyJump.setDown(best.getY() > feet.getY());
+        }
+    }
+
+    /** Nowhere free nearby: go up (fly in creative, otherwise jump and let the next block go underneath). */
+    private void flyOrJump() {
+        if (mc.player.getAbilities().mayfly) {
+            mc.player.getAbilities().flying = true;
+            mc.player.setDeltaMovement(0, 0.5, 0);
+        } else mc.options.keyJump.setDown(true);
     }
 
     /** Rebuild the list of what still needs doing. */
@@ -624,6 +791,7 @@ public class Builder extends Module {
 
     private void stopMoving() {
         flyTicks = 0;
+        if (mc.options.keyUp.isDown() || mc.options.keyJump.isDown()) { mc.options.keyUp.setDown(false); mc.options.keyJump.setDown(false); }
         AutoMiner am = ModuleManager.get(AutoMiner.class);
         if (moveGoal != null && am.getGotoTarget() != null) am.cancelGoto();
         moveGoal = null;
