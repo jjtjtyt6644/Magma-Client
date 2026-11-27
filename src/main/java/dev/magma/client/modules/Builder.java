@@ -62,7 +62,9 @@ public class Builder extends Module {
     public final BoolSetting clearExtra = add(new BoolSetting("Clear Extra Blocks", "Also mine blocks standing where the schematic has air.", false));
     public final BoolSetting removeScaffold = add(new BoolSetting("Remove Scaffold", "Take the scaffolding and pillars down when finished.", true));
     public final BoolSetting preview = add(new BoolSetting("Preview", "Outline the blocks still to place.", true));
-    public final ButtonSetting buildHere = add(new ButtonSetting("Start", "Load the schematic and build it in front of you.", "Build here", () -> start(null, true)));
+    public final ButtonSetting loadBtn = add(new ButtonSetting("Load", "Show the schematic in front of you so you can place it (hold a stick to move it).", "Load here", () -> load(null)));
+    public final ButtonSetting buildBtn = add(new ButtonSetting("Build", "Start building the loaded schematic where it's shown.", "Start building", () -> startBuilding()));
+    public final ButtonSetting editorBtn = add(new ButtonSetting("Image Converter", "Open the website that turns a picture into a schematic you can edit.", "Open editor", () -> dev.magma.client.util.EditorServer.open()));
     public final ButtonSetting openFolder = add(new ButtonSetting("Schematics", "Open the folder to drop schematic files into.", "Open folder", Builder::openFolder));
 
     /** Properties the game sets by itself (connections, power, ...). They don't need to match. */
@@ -79,7 +81,11 @@ public class Builder extends Module {
 
     private record Work(BlockPos pos, BlockState target, boolean breakIt) {}
 
-    private Schematic schem;
+    private Schematic base, schem;
+    private int rot; // quarter turns clockwise
+    private boolean building;
+    private long lastStickAction;
+    private final List<BlockPos> ghosts = new ArrayList<>();
     private String loadedName;
     private BlockPos origin;
     private Phase phase = Phase.BUILD;
@@ -97,6 +103,9 @@ public class Builder extends Module {
     public Builder() {
         super("Builder", "Builds a schematic for you: scaffolds, places every block facing the right way, then cleans up.", Category.WORLD, -1);
         advanced(clearExtra, removeScaffold, preview);
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(this::onStickClick);
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(this::onStickScroll);
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(this::onArrowKey);
     }
 
     @Override public boolean persistEnabled() { return false; }
@@ -104,6 +113,7 @@ public class Builder extends Module {
     @Override
     public String getInfo() {
         if (schem == null) return null;
+        if (!building) return schem.name + " preview";
         int pct = totalPlace == 0 ? 100 : (int) (100.0 * (totalPlace - toPlace) / totalPlace);
         return schem.name + " " + pct + "%";
     }
@@ -112,28 +122,32 @@ public class Builder extends Module {
 
     // ------------------------------------------------------------------ commands / start
 
-    /** .build name [rotation] | .build list | .build stop | .build here | .build folder */
+    /** .build name [rotation] | .build start | .build stop | .build clear | .build here | .build rotate | .build list | .build folder */
     public static boolean handleCommand(String msg) {
         if (!msg.startsWith(".build")) return false;
         Builder b = ModuleManager.get(Builder.class);
         String[] a = msg.trim().split("\\s+");
         if (a.length == 1) {
-            Chat.info("Builder: .build <file> [0|90|180|270] | .build list | .build stop | .build here | .build folder");
+            Chat.info("Builder: .build <file> loads it | .build editor (image to schematic) | .build start | .build stop | .build clear | .build here | .build rotate | .build list | .build folder");
             Chat.info("Put schematics (.schem, .litematic, .nbt) in " + Schematic.folder());
             return true;
         }
         switch (a[1].toLowerCase()) {
-            case "stop", "cancel" -> b.setEnabled(false);
+            case "start", "go" -> b.startBuilding();
+            case "stop", "pause" -> b.stopBuilding(true);
+            case "clear", "unload", "cancel" -> b.setEnabled(false);
+            case "here" -> { if (b.schem != null) b.moveTo(b.inFront()); }
+            case "rotate" -> b.rotate();
             case "list" -> {
                 List<Path> l = Schematic.list();
                 if (l.isEmpty()) Chat.info("No schematics yet. Drop .schem/.litematic/.nbt files into " + Schematic.folder());
                 else for (Path p : l) Chat.info(" - " + p.getFileName());
             }
             case "folder" -> openFolder();
-            case "here" -> b.start(null, true);
+            case "editor", "convert", "web" -> dev.magma.client.util.EditorServer.open();
             default -> {
                 if (a.length > 2 && List.of("0", "90", "180", "270").contains(a[2])) b.rotation.set(a[2]);
-                b.start(msg.trim().substring(7).replaceFirst("\\s+(0|90|180|270)$", "").trim(), true);
+                b.load(msg.trim().substring(7).replaceFirst("\\s+(0|90|180|270)$", "").trim());
             }
         }
         return true;
@@ -143,8 +157,8 @@ public class Builder extends Module {
         net.minecraft.Util.getPlatform().openFile(Schematic.folder().toFile());
     }
 
-    /** Load (if needed) and start building; the schematic's corner goes 2 blocks in front of you. */
-    public void start(String name, boolean newOrigin) {
+    /** Load a schematic and show it in front of you (nothing is built until you start it). */
+    public void load(String name) {
         if (mc.player == null) return;
         if (name != null && !name.isBlank()) file.set(name);
         if (file.get().isBlank()) {
@@ -157,41 +171,77 @@ public class Builder extends Module {
             return;
         }
         try {
-            Schematic s = Schematic.load(p);
-            schem = s.rotated(switch (rotation.get()) {
-                case "90" -> Rotation.CLOCKWISE_90;
-                case "180" -> Rotation.CLOCKWISE_180;
-                case "270" -> Rotation.COUNTERCLOCKWISE_90;
-                default -> Rotation.NONE;
-            });
+            base = Schematic.load(p);
             loadedName = p.getFileName().toString();
         } catch (Exception e) {
             Chat.info("Builder: couldn't read " + p.getFileName() + " - " + e.getMessage());
             return;
         }
-        if (newOrigin || origin == null) {
-            Direction f = mc.player.getDirection();
-            origin = mc.player.blockPosition().relative(f, 2);
-            // keep the whole build in front of you: shift it sideways/back when it would grow behind you
-            if (f == Direction.NORTH) origin = origin.offset(0, 0, -(schem.sizeZ - 1));
-            if (f == Direction.WEST) origin = origin.offset(-(schem.sizeX - 1), 0, 0);
-        }
-        Chat.info("Builder: " + schem.name + " (" + schem.sizeX + "x" + schem.sizeY + "x" + schem.sizeZ + ", "
-                + schem.solidCount() + " blocks) at " + origin.toShortString()
-                + (schem.unknown > 0 ? " - " + schem.unknown + " unknown blocks skipped" : "") + ". Type .build stop to cancel.");
-        if (isEnabled()) setEnabled(false);
-        setEnabled(true);
+        if (building) stopBuilding(false);
+        rot = switch (rotation.get()) { case "90" -> 1; case "180" -> 2; case "270" -> 3; default -> 0; };
+        schem = base.rotated(rotationOf(rot));
+        origin = null;
+        moveTo(inFront());
+        if (!isEnabled()) setEnabled(true);
+        Chat.info("Builder: loaded " + schem.name + " (" + schem.sizeX + "x" + schem.sizeY + "x" + schem.sizeZ + ", "
+                + schem.solidCount() + " blocks)" + (schem.unknown > 0 ? " - " + schem.unknown + " unknown blocks skipped" : "") + ".");
+        Chat.info("Hold a stick: right-click = move here, left-click = rotate, arrow keys (or Shift+scroll) = nudge, PgUp/PgDn = up/down. Then .build start");
+        Notify.show("Schematic loaded - place it with a stick", Theme.accent());
     }
 
-    @Override
-    protected void onEnable() {
+    private static Rotation rotationOf(int quarter) {
+        return switch (quarter & 3) {
+            case 1 -> Rotation.CLOCKWISE_90;
+            case 2 -> Rotation.CLOCKWISE_180;
+            case 3 -> Rotation.COUNTERCLOCKWISE_90;
+            default -> Rotation.NONE;
+        };
+    }
+
+    /** The spot 3 blocks in front of you, at your feet's level. */
+    private BlockPos inFront() {
+        return mc.player.blockPosition().relative(mc.player.getDirection(), 3 + Math.max(schem.sizeX, schem.sizeZ) / 2);
+    }
+
+    /** Put the build's bottom-centre on this spot. */
+    private void moveTo(BlockPos spot) {
+        origin = spot.offset(-schem.sizeX / 2, 0, -schem.sizeZ / 2);
+        afterMove();
+    }
+
+    private void nudge(Direction d, int n) {
+        if (origin == null) return;
+        origin = origin.relative(d, n);
+        afterMove();
+    }
+
+    /** Turn 90 degrees clockwise around its centre. */
+    private void rotate() {
+        if (schem == null || building) return;
+        BlockPos centre = origin.offset(schem.sizeX / 2, 0, schem.sizeZ / 2);
+        rot = (rot + 1) & 3;
+        schem = base.rotated(rotationOf(rot));
+        rotation.set(String.valueOf(rot * 90));
+        moveTo(centre);
+    }
+
+    private void afterMove() {
+        todo.clear();
+        ghosts.clear();
+        if (mc.level != null) rescan();
+    }
+
+    /** Begin building the loaded schematic where it's shown. */
+    public void startBuilding() {
         if (schem == null || origin == null) {
-            // switched on from the menu: load the typed file at your feet
-            setEnabledSilently();
+            Chat.info("Builder: load a schematic first (.build <name>).");
             return;
         }
+        if (building) return;
         AutoMiner am = ModuleManager.get(AutoMiner.class);
         if (am.isEnabled()) am.setEnabled(false);
+        if (!isEnabled()) setEnabled(true);
+        building = true;
         phase = Phase.BUILD;
         todo.clear();
         deferred.clear();
@@ -206,19 +256,15 @@ public class Builder extends Module {
         startedAt = System.currentTimeMillis();
         rescan();
         totalPlace = toPlace;
+        ensureJunk();
+        Chat.info("Builder: building " + schem.name + " at " + origin.toShortString() + ". .build stop pauses, .build clear removes it.");
         reportMissing();
     }
 
-    /** Menu toggle with nothing loaded yet: do what "Build here" does. */
-    private void setEnabledSilently() {
-        mc.execute(() -> {
-            setEnabled(false);
-            start(null, true);
-        });
-    }
-
-    @Override
-    protected void onDisable() {
+    /** Stop building but keep the schematic shown (so you can move it or resume). */
+    public void stopBuilding(boolean say) {
+        if (!building) return;
+        building = false;
         AutoMiner am = ModuleManager.get(AutoMiner.class);
         if (am.placedLog == scaffold) am.placedLog = null;
         if (moveGoal != null && am.getGotoTarget() != null && !am.isEnabled()) am.cancelGoto();
@@ -226,7 +272,84 @@ public class Builder extends Module {
         if (breaking != null && mc.gameMode != null) mc.gameMode.stopDestroyBlock();
         breaking = null;
         PlayerControl.releaseMovement();
+        status = "Preview";
+        if (say) Chat.info("Builder: paused. .build start to continue, .build clear to remove it.");
+    }
+
+    @Override
+    protected void onEnable() {
+        if (schem == null) mc.execute(() -> {
+            // switched on from the menu with nothing loaded: load the typed file
+            setEnabled(false);
+            load(null);
+        });
+    }
+
+    @Override
+    protected void onDisable() {
+        stopBuilding(false);
+        schem = null;
+        base = null;
+        origin = null;
+        todo.clear();
+        ghosts.clear();
         status = "Idle";
+    }
+
+    // ------------------------------------------------------------------ stick controls
+
+    private boolean holdingStick() {
+        return mc.player != null && mc.player.getMainHandItem().is(Items.STICK);
+    }
+
+    private void onStickClick(net.neoforged.neoforge.client.event.InputEvent.InteractionKeyMappingTriggered e) {
+        if (!isEnabled() || schem == null || building || !holdingStick() || mc.screen != null) return;
+        e.setCanceled(true);
+        e.setSwingHand(false);
+        long now = System.currentTimeMillis();
+        if (now - lastStickAction < 200) return; // held button: once per click
+        lastStickAction = now;
+        if (e.isAttack()) {
+            rotate();
+            Notify.show("Rotated " + rot * 90 + "°", Theme.accent());
+        } else if (e.isUseItem()) {
+            if (mc.hitResult instanceof BlockHitResult bh && bh.getType() == net.minecraft.world.phys.HitResult.Type.BLOCK) {
+                moveTo(bh.getBlockPos().relative(bh.getDirection()));
+            } else {
+                // looking at nothing: drop it a few blocks ahead of where you look
+                Vec3 at = mc.player.getEyePosition().add(mc.player.getLookAngle().scale(8));
+                moveTo(BlockPos.containing(at));
+            }
+        }
+    }
+
+    /** Holding the stick: arrow keys slide the build (up = away from you), Page Up/Down raise or lower it. */
+    private void onArrowKey(net.neoforged.neoforge.client.event.InputEvent.Key e) {
+        if (!isEnabled() || schem == null || building || !holdingStick() || mc.screen != null) return;
+        if (e.getAction() == org.lwjgl.glfw.GLFW.GLFW_RELEASE) return;
+        Direction f = mc.player.getDirection();
+        Direction d = switch (e.getKey()) {
+            case org.lwjgl.glfw.GLFW.GLFW_KEY_UP -> f;
+            case org.lwjgl.glfw.GLFW.GLFW_KEY_DOWN -> f.getOpposite();
+            case org.lwjgl.glfw.GLFW.GLFW_KEY_LEFT -> f.getCounterClockWise();
+            case org.lwjgl.glfw.GLFW.GLFW_KEY_RIGHT -> f.getClockWise();
+            case org.lwjgl.glfw.GLFW.GLFW_KEY_PAGE_UP -> Direction.UP;
+            case org.lwjgl.glfw.GLFW.GLFW_KEY_PAGE_DOWN -> Direction.DOWN;
+            default -> null;
+        };
+        if (d != null) nudge(d, 1);
+    }
+
+    private void onStickScroll(net.neoforged.neoforge.client.event.InputEvent.MouseScrollingEvent e) {
+        if (!isEnabled() || schem == null || building || !holdingStick() || mc.screen != null) return;
+        // Shift (or Ctrl, like Litematica) + scroll; check the real keys so it works whatever sneak is bound to
+        if (!mc.options.keyShift.isDown() && !net.minecraft.client.gui.screens.Screen.hasShiftDown()
+                && !net.minecraft.client.gui.screens.Screen.hasControlDown()) return;
+        e.setCanceled(true);
+        int n = e.getScrollDeltaY() > 0 ? 1 : -1;
+        float pitch = mc.player.getXRot();
+        Direction d = pitch < -50 ? Direction.UP : pitch > 50 ? Direction.DOWN : mc.player.getDirection();
+        nudge(d, n);
     }
 
     // ------------------------------------------------------------------ main loop
@@ -240,6 +363,12 @@ public class Builder extends Module {
             setEnabled(false);
             return;
         }
+        if (!building) { // preview: just keep the ghost up to date
+            if (++tick % 20 == 0 || todo.isEmpty() && ghosts.isEmpty()) rescan();
+            status = "Preview";
+            return;
+        }
+        if (tick % 20 == 0) ensureJunk();
         am.driveIfIdle(); // walks/pillars us into reach
         tick++;
         deferred.entrySet().removeIf(e -> e.getValue() <= tick);
@@ -295,7 +424,19 @@ public class Builder extends Module {
     }
 
     /** Rebuild the list of what still needs doing. */
+    private final List<BlockPos> ghostTmp = new ArrayList<>();
+
+    /** Inside the build, completely covered by other full blocks: never seen, so don't draw it. */
+    private boolean hidden(BlockPos rel) {
+        for (Direction d : Direction.values()) {
+            BlockState n = schem.blocks.get(rel.relative(d));
+            if (n == null || !n.canOcclude()) return false;
+        }
+        return true;
+    }
+
     private void rescan() {
+        ghostTmp.clear();
         todo.clear();
         missing.clear();
         toPlace = 0;
@@ -314,9 +455,14 @@ public class Builder extends Module {
                 todo.add(new Work(pos, target, true)); // wrong block in the way
             }
             todo.add(new Work(pos, target, false));
+            if (ghosts.size() < 20000 && !hidden(e.getKey())) ghostTmp.add(pos);
             toPlace++;
             need.merge(target.getBlock().asItem(), 1, Integer::sum);
         }
+        Vec3 eye = mc.player.getEyePosition();
+        ghostTmp.sort(java.util.Comparator.comparingDouble(q -> eye.distanceToSqr(q.getX() + 0.5, q.getY() + 0.5, q.getZ() + 0.5)));
+        ghosts.clear();
+        ghosts.addAll(ghostTmp.subList(0, Math.min(ghostTmp.size(), 6000)));
         if (!mc.player.getAbilities().instabuild) {
             for (Map.Entry<Item, Integer> e : need.entrySet()) {
                 int have = count(e.getKey());
@@ -358,22 +504,39 @@ public class Builder extends Module {
 
     private void cleanup() {
         if (!removeScaffold.get()) { finish(); return; }
-        Vec3 eye = mc.player.getEyePosition();
-        BlockPos best = null;
+        List<BlockPos> left = new ArrayList<>();
         for (BlockPos p : scaffold) {
             BlockState s = mc.level.getBlockState(p);
             if (s.isAir() || !s.getFluidState().isEmpty() || deferred.containsKey(p)) continue;
             BlockState want = schem.blocks.get(p.subtract(origin));
             if (want != null && !want.isAir()) continue; // turned out to be part of the build
-            // top-down, then nearest
-            if (best == null || p.getY() > best.getY()
-                    || p.getY() == best.getY() && eye.distanceToSqr(Vec3.atCenterOf(p)) < eye.distanceToSqr(Vec3.atCenterOf(best))) best = p;
+            left.add(p);
         }
-        if (best == null) { finish(); return; }
-        status = "Removing scaffold";
-        if (!inReach(best)) { moveNear(best); return; }
-        stopMoving();
-        breakBlock(best);
+        if (left.isEmpty()) { finish(); return; }
+        status = "Removing scaffold (" + left.size() + " left)";
+        // 1) standing on our own pillar: dig straight down through it
+        BlockPos under = BlockPos.containing(mc.player.getX(), mc.player.getY() - 0.2, mc.player.getZ());
+        if (mc.player.onGround() && left.contains(under)) {
+            stopMoving();
+            breakBlock(under);
+            return;
+        }
+        // 2) the highest one we can reach (top-down, so nothing is left floating)
+        BlockPos best = null;
+        for (BlockPos p : left) if (inReach(p) && (best == null || p.getY() > best.getY())) best = p;
+        if (best != null) {
+            stopMoving();
+            breakBlock(best);
+            return;
+        }
+        // 3) go to the nearest pillar top
+        Vec3 eye = mc.player.getEyePosition();
+        BlockPos top = null;
+        for (BlockPos p : left) {
+            if (left.contains(p.above())) continue;
+            if (top == null || eye.distanceToSqr(Vec3.atCenterOf(p)) < eye.distanceToSqr(Vec3.atCenterOf(top))) top = p;
+        }
+        moveNear(top != null ? top : left.get(0));
     }
 
     private void finish() {
@@ -410,6 +573,7 @@ public class Builder extends Module {
     }
 
     private void moveNear(BlockPos pos) {
+        if (mc.player.getAbilities().mayfly && mc.player.getAbilities().instabuild) { flyNear(pos); return; }
         AutoMiner am = ModuleManager.get(AutoMiner.class);
         BlockPos goal = pos.above();
         if (am.getGotoTarget() != null && goal.equals(moveGoal)) {
@@ -437,7 +601,27 @@ public class Builder extends Module {
         status = "Walking to " + pos.toShortString();
     }
 
+    /** Creative: just fly to a spot a couple of blocks beside the target (much faster than walking/pillaring). */
+    private void flyNear(BlockPos pos) {
+        Vec3 c = Vec3.atCenterOf(pos);
+        Vec3 away = new Vec3(mc.player.getX() - c.x, 0, mc.player.getZ() - c.z);
+        if (away.lengthSqr() < 0.01) away = new Vec3(1, 0, 0);
+        Vec3 goal = c.add(away.normalize().scale(2.2)).add(0, -1.0, 0); // eyes level with the block
+        Vec3 d = goal.subtract(mc.player.position());
+        double dist = d.length();
+        mc.player.getAbilities().flying = true;
+        status = "Flying to " + pos.toShortString();
+        if (dist < 0.3) { mc.player.setDeltaMovement(Vec3.ZERO); return; }
+        Vec3 v = d.normalize().scale(Math.min(0.8, dist * 0.45));
+        if (mc.player.horizontalCollision) v = v.add(0, 0.4, 0); // bumped into something: go over it
+        mc.player.setDeltaMovement(v);
+        if (++flyTicks > 20 * 15) { flyTicks = 0; defer(pos, 200); } // couldn't get there: try others first
+    }
+
+    private int flyTicks;
+
     private void stopMoving() {
+        flyTicks = 0;
         AutoMiner am = ModuleManager.get(AutoMiner.class);
         if (moveGoal != null && am.getGotoTarget() != null) am.cancelGoto();
         moveGoal = null;
@@ -604,6 +788,21 @@ public class Builder extends Module {
         return true;
     }
 
+    public boolean isBuilding() { return building && isEnabled(); }
+
+    /** Pillars and scaffolding need junk blocks: creative gets cobblestone for free. */
+    private void ensureJunk() {
+        for (int i = 0; i < 36; i++) if (AutoMiner.isScaffold(mc.player.getInventory().getItem(i))) return;
+        if (mc.player.getAbilities().instabuild) {
+            int hb = freeHotbarSlot();
+            ItemStack st = new ItemStack(Items.COBBLESTONE, 64);
+            mc.player.getInventory().setItem(hb, st);
+            mc.gameMode.handleCreativeModeItemAdd(st, 36 + hb);
+        } else if (tick % 600 == 0 && schem.sizeY > 3) {
+            Chat.info("Builder: carry some junk blocks (cobblestone, dirt, netherrack) so it can pillar up to the higher parts.");
+        }
+    }
+
     private int junkSlot() {
         for (int i = 0; i < 9; i++) if (AutoMiner.isScaffold(mc.player.getInventory().getItem(i))) return i;
         for (int i = 9; i < 36; i++) {
@@ -686,18 +885,74 @@ public class Builder extends Module {
 
     @Override
     public void onRenderLast(RenderLevelStageEvent event) {
-        if (!preview.get() || schem == null || origin == null) return;
-        List<Work> list = new ArrayList<>(todo);
+        if (schem == null || origin == null) return;
         BlockPos o = origin;
+        Vec3 cam = event.getCamera().getPosition();
+        // ghost blocks: the real block models, see-through, hidden behind terrain like a placed schematic
+        if (preview.get() || !building) {
+            List<BlockPos> list = new ArrayList<>(ghosts);
+            var dispatcher = mc.getBlockRenderer();
+            WorldRender.drawBlocks(event, building ? 0.35f : 0.55f, false, source -> {
+                com.mojang.blaze3d.vertex.PoseStack ps = new com.mojang.blaze3d.vertex.PoseStack();
+                for (BlockPos p : list) {
+                    BlockState st = schem.blocks.get(p.subtract(o));
+                    if (st == null || st.getRenderShape() != net.minecraft.world.level.block.RenderShape.MODEL) continue;
+                    ps.pushPose();
+                    ps.translate(p.getX() - cam.x, p.getY() - cam.y, p.getZ() - cam.z);
+                    dispatcher.renderSingleBlock(st, ps, source, net.minecraft.client.renderer.LightTexture.FULL_BRIGHT,
+                            net.minecraft.client.renderer.texture.OverlayTexture.NO_OVERLAY,
+                            net.neoforged.neoforge.client.model.data.ModelData.EMPTY, WorldRender.ORE);
+                    ps.popPose();
+                }
+            });
+        }
+        List<Work> list = new ArrayList<>(todo);
+        int frame = building ? 0x90FFFFFF : 0xFF4FC3F7;
         WorldRender.draw(event, b -> {
-            b.box(new AABB(o.getX(), o.getY(), o.getZ(), o.getX() + schem.sizeX, o.getY() + schem.sizeY, o.getZ() + schem.sizeZ), 0x90FFFFFF, 0);
+            b.box(new AABB(o.getX(), o.getY(), o.getZ(), o.getX() + schem.sizeX, o.getY() + schem.sizeY, o.getZ() + schem.sizeZ), frame, 0);
             int n = 0;
-            Set<BlockPos> drawn = new LinkedHashSet<>();
             for (Work w : list) {
-                if (n++ > 1500 || !drawn.add(w.pos())) continue;
-                if (w.breakIt()) b.block(w.pos(), 0xFFFF5252, 0x30FF5252);
-                else b.block(w.pos(), 0xC04FC3F7, 0x204FC3F7);
+                if (!w.breakIt() || n++ > 1500) continue;
+                b.block(w.pos(), 0xFFFF5252, 0x30FF5252); // wrong block in the way
             }
         });
+    }
+
+    /** Small panel while a schematic is shown: where it is, how to move it, what's missing. */
+    @Override
+    public void onRenderHud(net.minecraft.client.gui.GuiGraphics g, float pt) {
+        if (schem == null || origin == null) return;
+        var font = mc.font;
+        List<String> lines = new ArrayList<>();
+        lines.add((building ? "Building " : "Schematic ") + schem.name + "  " + schem.sizeX + "x" + schem.sizeY + "x" + schem.sizeZ
+                + (building ? "  " + getInfo().replace(schem.name + " ", "") : ""));
+        lines.add("At " + origin.getX() + " " + origin.getY() + " " + origin.getZ() + "  ·  " + rot * 90 + "°"
+                + (building ? "  ·  " + status : ""));
+        if (!building) {
+            lines.add(holdingStick() ? "Right-click: move here  ·  Left-click: rotate  ·  Arrows / Shift+scroll: nudge"
+                    : "Hold a stick to move or rotate it");
+            lines.add("Type .build start to build  ·  .build clear to remove");
+        }
+        if (!missing.isEmpty()) {
+            StringBuilder sb = new StringBuilder("Missing: ");
+            int k = 0;
+            for (Map.Entry<Item, Integer> e : missing.entrySet()) {
+                if (k++ == 3) { sb.append(" +").append(missing.size() - 3).append(" more"); break; }
+                if (k > 1) sb.append(", ");
+                sb.append(e.getValue()).append(" ").append(e.getKey().getDescription().getString());
+            }
+            lines.add(sb.toString());
+        }
+        int w = 0;
+        for (String l : lines) w = Math.max(w, font.width(l));
+        w += 16;
+        int h = lines.size() * 11 + 8;
+        int x = (g.guiWidth() - w) / 2, y = 26;
+        dev.magma.client.util.Render2D.roundedRect(g, x, y, w, h, 5, 0xD80F1117);
+        dev.magma.client.util.Render2D.rect(g, x, y + 3, 2, h - 6, Theme.accent());
+        for (int i = 0; i < lines.size(); i++) {
+            int col = i == 0 ? Theme.TEXT : lines.get(i).startsWith("Missing") ? 0xFFFFB74D : 0xFFAEB6C4;
+            g.drawString(font, lines.get(i), x + 9, y + 5 + i * 11, col, false);
+        }
     }
 }

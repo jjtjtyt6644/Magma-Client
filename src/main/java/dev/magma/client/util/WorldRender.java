@@ -136,6 +136,11 @@ public final class WorldRender {
 
     /** Draw real block models (X-Ray) through walls with the given opacity. {@code fn} gets a buffer source to render into. */
     public static void drawBlocks(RenderLevelStageEvent event, float opacity, Consumer<MultiBufferSource> fn) {
+        drawBlocks(event, opacity, true, fn);
+    }
+
+    /** {@code seeThrough=false}: hidden behind terrain like a real block (schematic ghosts). */
+    public static void drawBlocks(RenderLevelStageEvent event, float opacity, boolean seeThrough, Consumer<MultiBufferSource> fn) {
         Matrix4fStack mv = RenderSystem.getModelViewStack();
         mv.pushMatrix();
         mv.identity();
@@ -150,7 +155,11 @@ public final class WorldRender {
         RenderSystem.setShaderFogEnd(Float.MAX_VALUE);
         // NO_DEPTH_TEST ("always") doesn't switch depth testing off - it assumes it's already off. At this point
         // Minecraft has it ON, so everything was still hidden behind walls. Switch it off ourselves.
-        RenderSystem.disableDepthTest();
+        if (seeThrough) RenderSystem.disableDepthTest();
+        else {
+            RenderSystem.enableDepthTest();
+            RenderSystem.depthFunc(org.lwjgl.opengl.GL11.GL_LEQUAL);
+        }
         try {
             fn.accept(type -> new AlphaVertexConsumer(SOURCE.getBuffer(ORE), opacity));
         } finally {

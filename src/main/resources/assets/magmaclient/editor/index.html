@@ -1,0 +1,707 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Magma Image Converter</title>
+<style>
+:root{--bg:#0b0c10;--panel:#12141a;--panel2:#181b22;--line:#252a33;--text:#eceff4;--muted:#8a93a3;--accent:#ff7a1a;--accent2:#ffb067;--ok:#4caf50;--err:#ff5252;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+button,input,select{font:inherit;color:inherit}
+.app{display:grid;grid-template-columns:300px 1fr 300px;grid-template-rows:56px 1fr;height:100vh}
+header{grid-column:1/4;display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+.logo{font-weight:700;font-size:16px;display:flex;align-items:center;gap:8px}
+.logo b{color:var(--accent)}
+.spacer{flex:1}
+.name{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:7px 10px;width:200px}
+.btn{border:1px solid var(--line);background:var(--panel2);border-radius:8px;padding:8px 14px;cursor:pointer;white-space:nowrap}
+.btn:hover{border-color:#3a414e}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#1a0d02;font-weight:650}
+.btn.primary:hover{background:var(--accent2)}
+.btn:disabled{opacity:.45;cursor:default}
+aside{background:var(--panel);overflow:auto;padding:14px}
+aside.left{border-right:1px solid var(--line)}
+aside.right{border-left:1px solid var(--line);display:flex;flex-direction:column;gap:12px}
+h3{margin:4px 0 10px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.step{margin-bottom:18px}
+.drop{border:2px dashed #353b47;border-radius:12px;padding:18px 12px;text-align:center;cursor:pointer;transition:.15s;background:var(--panel2)}
+.drop:hover,.drop.over{border-color:var(--accent);background:#1d1813}
+.drop .big{font-size:15px;font-weight:600;margin-bottom:4px}
+.drop small{color:var(--muted)}
+.drop img{max-width:100%;max-height:120px;border-radius:6px;margin-top:8px;image-rendering:auto}
+.row{display:flex;align-items:center;gap:8px;margin:8px 0}
+.row label{flex:1;color:var(--muted)}
+input[type=range]{flex:1;accent-color:var(--accent)}
+input[type=number]{width:70px;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:4px 6px}
+.seg{display:flex;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:3px}
+.seg button{flex:1;border:0;background:none;padding:6px;border-radius:6px;cursor:pointer;color:var(--muted)}
+.seg button.on{background:#262b35;color:var(--text)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--line);background:var(--panel2);border-radius:999px;padding:5px 10px;cursor:pointer;font-size:13px;color:var(--muted)}
+.chip.on{border-color:var(--accent);color:var(--text);background:#241a12}
+.check{display:flex;align-items:center;gap:8px;margin:8px 0;cursor:pointer;color:var(--muted)}
+.check input{accent-color:var(--accent);width:16px;height:16px}
+.hint{color:var(--muted);font-size:12px}
+.link{color:var(--accent);cursor:pointer;text-decoration:underline}
+main{position:relative;overflow:hidden;background:#090a0d;background-image:linear-gradient(45deg,#0e1014 25%,transparent 25%),linear-gradient(-45deg,#0e1014 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#0e1014 75%),linear-gradient(-45deg,transparent 75%,#0e1014 75%);background-size:24px 24px;background-position:0 0,0 12px,12px -12px,-12px 0}
+canvas#view{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
+.tools{position:absolute;top:12px;left:50%;transform:translateX(-50%);display:flex;gap:4px;background:rgba(18,20,26,.92);border:1px solid var(--line);border-radius:10px;padding:4px;backdrop-filter:blur(6px)}
+.tools button{border:0;background:none;border-radius:7px;padding:7px 11px;cursor:pointer;color:var(--muted);display:flex;align-items:center;gap:6px}
+.tools button.on{background:#2a2f3a;color:var(--text)}
+.tools button:hover{color:var(--text)}
+.tools .sep{width:1px;background:var(--line);margin:4px 2px}
+kbd{font-size:10px;color:#6c7483;border:1px solid #333a45;border-radius:4px;padding:0 4px}
+.empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;color:var(--muted);text-align:center;pointer-events:none}
+.empty .big{font-size:22px;color:var(--text);font-weight:650}
+.status{position:absolute;bottom:10px;left:12px;background:rgba(18,20,26,.92);border:1px solid var(--line);border-radius:8px;padding:5px 10px;font-size:12px;color:var(--muted)}
+.cur{display:flex;align-items:center;gap:10px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px}
+.cur img,.sw img{image-rendering:pixelated}
+.cur img{width:36px;height:36px;border-radius:4px}
+.cur .n{font-weight:600}
+.search{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:7px 10px}
+.pal{display:grid;grid-template-columns:repeat(auto-fill,minmax(34px,1fr));gap:4px;max-height:280px;overflow:auto;padding:2px}
+.sw{position:relative;border:2px solid transparent;border-radius:5px;cursor:pointer;aspect-ratio:1;padding:0;background:none}
+.sw img{width:100%;height:100%;display:block;border-radius:3px}
+.sw.on{border-color:var(--accent)}
+.sw.off{opacity:.3}
+.used{display:flex;flex-direction:column;gap:3px;overflow:auto;min-height:80px}
+.u{display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;cursor:pointer}
+.u:hover{background:var(--panel2)}
+.u img{width:20px;height:20px;image-rendering:pixelated;border-radius:3px}
+.u .c{margin-left:auto;color:var(--muted);font-variant-numeric:tabular-nums;font-size:12px}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);opacity:0;background:#1d212a;border:1px solid var(--line);border-left:3px solid var(--accent);padding:12px 16px;border-radius:10px;max-width:560px;transition:.25s;pointer-events:none;box-shadow:0 10px 30px rgba(0,0,0,.4)}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.ok{border-left-color:var(--ok)}
+.toast.err{border-left-color:var(--err)}
+.tip{position:absolute;pointer-events:none;background:#1d212a;border:1px solid var(--line);border-radius:6px;padding:3px 8px;font-size:12px;display:none;white-space:nowrap}
+.loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg);z-index:9;flex-direction:column;gap:12px;color:var(--muted)}
+.spin{width:28px;height:28px;border:3px solid #333;border-top-color:var(--accent);border-radius:50%;animation:s 0.8s linear infinite}
+@keyframes s{to{transform:rotate(360deg)}}
+@media (max-width:1000px){.app{grid-template-columns:260px 1fr}aside.right{display:none}}
+</style>
+</head>
+<body>
+<div class="loading" id="loading"><div class="spin"></div><div>Loading block textures from your game…</div></div>
+<div class="app">
+  <header>
+    <div class="logo">🔥 <span><b>Magma</b> Image Converter</span></div>
+    <div class="spacer"></div>
+    <input class="name" id="name" placeholder="Name" value="my_build" spellcheck="false">
+    <button class="btn" id="download" disabled title="Save a .schem file">Download .schem</button>
+    <button class="btn primary" id="send" disabled title="Save it and show it in your game">Send to Minecraft ➜</button>
+  </header>
+
+  <aside class="left">
+    <div class="step">
+      <h3>1 · Picture</h3>
+      <div class="drop" id="drop">
+        <div class="big">Paste, drop or click</div>
+        <small>Ctrl+V a copied image, drag a file here, or click to pick one</small>
+        <img id="thumb" hidden alt="">
+      </div>
+      <div class="row" style="margin-top:10px">
+        <input class="search" id="url" placeholder="…or paste an image link">
+      </div>
+      <div class="hint">No picture? <span class="link" id="blank">Start a blank canvas</span> · <span class="link" id="sample">Try a sample</span></div>
+    </div>
+
+    <div class="step">
+      <h3>2 · Size</h3>
+      <div class="row"><label>Width (blocks)</label><input type="number" id="wnum" min="4" max="256" value="48"></div>
+      <input type="range" id="width" min="4" max="256" value="48" style="width:100%">
+      <div class="hint" id="sizeInfo">—</div>
+    </div>
+
+    <div class="step">
+      <h3>3 · Build as</h3>
+      <div class="seg" id="orient">
+        <button data-v="wall" class="on">Wall (standing up)</button>
+        <button data-v="floor">Floor (lying flat)</button>
+      </div>
+    </div>
+
+    <div class="step">
+      <h3>4 · Blocks to use</h3>
+      <div class="chips" id="groups"></div>
+      <label class="check"><input type="checkbox" id="dither"> Dithering (smoother shading)</label>
+      <label class="check"><input type="checkbox" id="transp" checked> See-through pixels = no block</label>
+      <div class="row"><label>Fewest block types</label><input type="range" id="maxColors" min="2" max="64" value="64"><span class="hint" id="maxColorsV">all</span></div>
+    </div>
+  </aside>
+
+  <main id="main">
+    <canvas id="view"></canvas>
+    <div class="empty" id="empty"><div class="big">Paste a picture to start</div><div>Ctrl+V anywhere on this page, or drop an image here</div></div>
+    <div class="tools" id="tools">
+      <button data-t="paint" class="on" title="Paint (B)">✏️ Paint <kbd>B</kbd></button>
+      <button data-t="fill" title="Fill area (G)">🪣 Fill <kbd>G</kbd></button>
+      <button data-t="pick" title="Pick a block from the picture (I)">💧 Pick <kbd>I</kbd></button>
+      <button data-t="erase" title="Erase (E)">🧽 Erase <kbd>E</kbd></button>
+      <span class="sep"></span>
+      <button id="undo" title="Undo (Ctrl+Z)">↶</button>
+      <button id="redo" title="Redo (Ctrl+Y)">↷</button>
+      <button id="fit" title="Fit to screen (F)">⤢</button>
+    </div>
+    <div class="status" id="status">Scroll to zoom · Right-drag to move · Alt+click picks a block</div>
+    <div class="tip" id="tip"></div>
+  </main>
+
+  <aside class="right">
+    <div>
+      <h3>Painting with</h3>
+      <div class="cur"><img id="curImg" alt=""><div><div class="n" id="curName">—</div><div class="hint" id="curId"></div></div></div>
+    </div>
+    <div>
+      <input class="search" id="search" placeholder="Search blocks…">
+    </div>
+    <div class="pal" id="pal"></div>
+    <div style="display:flex;flex-direction:column;min-height:0;flex:1">
+      <h3>Materials <span id="total" style="text-transform:none;letter-spacing:0"></span></h3>
+      <div class="hint" style="margin-bottom:6px">Click one to swap it everywhere for the block you're painting with.</div>
+      <div class="used" id="used"></div>
+    </div>
+  </aside>
+</div>
+<div class="toast" id="toast"></div>
+<input type="file" id="file" accept="image/*" hidden>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+let PAL = [];            // {id,name,rgb,group,tex,img,lab}
+let groupsOn = new Set(["Wool", "Concrete", "Terracotta"]);
+let img = null;          // source picture
+let W = 0, H = 0;        // canvas size in blocks
+let grid = null;         // Int16Array, -1 = no block
+let orient = "wall";
+let tool = "paint", cur = -1;
+let undoStack = [], redoStack = [];
+let view = {z: 12, x: 0, y: 0};
+let hover = null;
+
+// ---------------------------------------------------------------- colour maths
+function lab(r, g, b) {
+  const f = c => { c /= 255; return c > 0.04045 ? Math.pow((c + 0.055) / 1.055, 2.4) : c / 12.92; };
+  let R = f(r), G = f(g), B = f(b);
+  let x = (R * 0.4124 + G * 0.3576 + B * 0.1805) / 0.95047, y = R * 0.2126 + G * 0.7152 + B * 0.0722, z = (R * 0.0193 + G * 0.1192 + B * 0.9505) / 1.08883;
+  const h = t => t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116;
+  x = h(x); y = h(y); z = h(z);
+  return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
+}
+function nearest(r, g, b, allowed) {
+  const L = lab(r, g, b);
+  let best = -1, bd = Infinity;
+  for (const i of allowed) {
+    const p = PAL[i].lab, d = (p[0] - L[0]) ** 2 + (p[1] - L[1]) ** 2 + (p[2] - L[2]) ** 2;
+    if (d < bd) { bd = d; best = i; }
+  }
+  return best;
+}
+
+// ---------------------------------------------------------------- loading
+async function init() {
+  try {
+    const res = await fetch("/api/palette");
+    if (!res.ok) throw new Error(await res.text());
+    PAL = await res.json();
+  } catch (e) {
+    $("loading").innerHTML = "<div style='color:#ff5252'>Couldn't load blocks from the game.</div><div>Is Minecraft still running? (" + e.message + ")</div>";
+    return;
+  }
+  await Promise.all(PAL.map(p => new Promise(ok => {
+    p.lab = lab(...p.rgb);
+    p.img = new Image();
+    p.img.onload = p.img.onerror = ok;
+    p.img.src = p.tex;
+  })));
+  const order = ["Wool", "Concrete", "Terracotta", "Glazed terracotta", "Wood", "Stone", "Copper", "Other"];
+  PAL.sort((a, b) => order.indexOf(a.group) - order.indexOf(b.group) || a.name.localeCompare(b.name));
+  cur = Math.max(0, PAL.findIndex(p => p.id === "minecraft:white_wool"));
+  buildGroups();
+  buildPalette();
+  setCur(cur);
+  $("loading").remove();
+  resize();
+}
+
+function buildGroups() {
+  const box = $("groups");
+  box.innerHTML = "";
+  const names = [...new Set(PAL.map(p => p.group))];
+  for (const g of names) {
+    const c = document.createElement("button");
+    c.className = "chip" + (groupsOn.has(g) ? " on" : "");
+    c.textContent = g + " " + PAL.filter(p => p.group === g).length;
+    c.onclick = () => {
+      if (groupsOn.has(g)) groupsOn.delete(g); else groupsOn.add(g);
+      if (groupsOn.size === 0) groupsOn.add(g);
+      c.classList.toggle("on", groupsOn.has(g));
+      buildPalette();
+      if (img) convert(true);
+    };
+    box.appendChild(c);
+  }
+}
+
+function buildPalette() {
+  const q = $("search").value.trim().toLowerCase();
+  const box = $("pal");
+  box.innerHTML = "";
+  PAL.forEach((p, i) => {
+    if (q && !p.name.toLowerCase().includes(q) && !p.id.includes(q)) return;
+    if (!q && !groupsOn.has(p.group)) return;
+    const b = document.createElement("button");
+    b.className = "sw" + (i === cur ? " on" : "");
+    b.title = p.name;
+    b.appendChild(p.img.cloneNode());
+    b.onclick = () => { setCur(i); if (tool === "pick" || tool === "erase") setTool("paint"); };
+    b.dataset.i = i;
+    box.appendChild(b);
+  });
+}
+
+function setCur(i) {
+  cur = i;
+  const p = PAL[i];
+  $("curImg").src = p.tex;
+  $("curName").textContent = p.name;
+  $("curId").textContent = p.id.replace("minecraft:", "");
+  for (const b of $("pal").children) b.classList.toggle("on", +b.dataset.i === i);
+}
+
+function setTool(t) {
+  tool = t;
+  for (const b of $("tools").querySelectorAll("[data-t]")) b.classList.toggle("on", b.dataset.t === t);
+}
+
+// ---------------------------------------------------------------- picture -> blocks
+function loadImage(src) {
+  const im = new Image();
+  im.onload = () => {
+    img = im;
+    $("thumb").src = src;
+    $("thumb").hidden = false;
+    // a sensible default size: small pictures 1:1, big ones down to 64 wide
+    const w = Math.min(256, im.width <= 128 ? im.width : 64);
+    $("width").value = $("wnum").value = w;
+    convert(true);
+    fit();
+    toast("Converted! Paint over anything you want to change, then Send to Minecraft.", "ok");
+  };
+  im.onerror = () => toast("That doesn't look like an image I can read.", "err");
+  im.src = src;
+}
+
+function allowedIdx() {
+  const out = [];
+  PAL.forEach((p, i) => { if (groupsOn.has(p.group)) out.push(i); });
+  return out;
+}
+
+function convert(snapshot) {
+  if (!img) return;
+  if (snapshot && grid) pushUndo();
+  W = +$("width").value;
+  H = Math.max(1, Math.round(img.height * W / img.width));
+  const c = document.createElement("canvas");
+  c.width = W; c.height = H;
+  const cx = c.getContext("2d", {willReadFrequently: true});
+  cx.imageSmoothingEnabled = true;
+  cx.imageSmoothingQuality = "high";
+  cx.drawImage(img, 0, 0, W, H);
+  const px = cx.getImageData(0, 0, W, H).data;
+  let allowed = allowedIdx();
+  const maxC = +$("maxColors").value;
+  if (maxC < 64) allowed = reducePalette(px, allowed, maxC);
+  const dither = $("dither").checked, transp = $("transp").checked;
+  grid = new Int16Array(W * H);
+  const err = dither ? new Float32Array(W * H * 3) : null;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x, o = i * 4;
+    if (transp && px[o + 3] < 128) { grid[i] = -1; continue; }
+    let r = px[o], g = px[o + 1], b = px[o + 2];
+    if (dither) { r += err[i * 3]; g += err[i * 3 + 1]; b += err[i * 3 + 2]; }
+    const k = nearest(clamp(r), clamp(g), clamp(b), allowed);
+    grid[i] = k;
+    if (dither) {
+      const p = PAL[k].rgb, er = r - p[0], eg = g - p[1], eb = b - p[2];
+      const spread = (dx, dy, f) => {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || nx >= W || ny >= H) return;
+        const j = (ny * W + nx) * 3;
+        err[j] += er * f; err[j + 1] += eg * f; err[j + 2] += eb * f;
+      };
+      spread(1, 0, 7 / 16); spread(-1, 1, 3 / 16); spread(0, 1, 5 / 16); spread(1, 1, 1 / 16);
+    }
+  }
+  changed();
+}
+const clamp = v => v < 0 ? 0 : v > 255 ? 255 : v;
+
+/** Keep only the n blocks that the picture uses most (simple, predictable). */
+function reducePalette(px, allowed, n) {
+  const count = new Map();
+  for (let o = 0; o < px.length; o += 4) {
+    if (px[o + 3] < 128) continue;
+    const k = nearest(px[o], px[o + 1], px[o + 2], allowed);
+    count.set(k, (count.get(k) || 0) + 1);
+  }
+  return [...count.entries()].sort((a, b) => b[1] - a[1]).slice(0, n).map(e => e[0]);
+}
+
+function newBlank() {
+  const w = +prompt("Width in blocks?", "32"), h = +prompt("Height in blocks?", "32");
+  if (!(w > 0 && h > 0)) return;
+  if (grid) pushUndo();
+  img = null;
+  W = Math.min(256, w); H = Math.min(256, h);
+  grid = new Int16Array(W * H).fill(-1);
+  $("width").value = $("wnum").value = W;
+  changed();
+  fit();
+}
+
+function sample() {
+  // a little creeper face, drawn here so it works offline
+  const c = document.createElement("canvas");
+  c.width = c.height = 16;
+  const x = c.getContext("2d");
+  x.fillStyle = "#5cb85c"; x.fillRect(0, 0, 16, 16);
+  for (let i = 0; i < 40; i++) { x.fillStyle = Math.random() < .5 ? "#4a9d4a" : "#79d279"; x.fillRect(Math.random() * 16 | 0, Math.random() * 16 | 0, 1, 1); }
+  x.fillStyle = "#111";
+  x.fillRect(3, 4, 3, 3); x.fillRect(10, 4, 3, 3); x.fillRect(6, 7, 4, 4); x.fillRect(5, 9, 2, 4); x.fillRect(9, 9, 2, 4);
+  loadImage(c.toDataURL());
+}
+
+// ---------------------------------------------------------------- editing
+function pushUndo() {
+  undoStack.push({W, H, grid: grid.slice()});
+  if (undoStack.length > 60) undoStack.shift();
+  redoStack = [];
+}
+function undo() {
+  if (!undoStack.length) return;
+  redoStack.push({W, H, grid: grid.slice()});
+  const s = undoStack.pop();
+  W = s.W; H = s.H; grid = s.grid;
+  changed();
+}
+function redo() {
+  if (!redoStack.length) return;
+  undoStack.push({W, H, grid: grid.slice()});
+  const s = redoStack.pop();
+  W = s.W; H = s.H; grid = s.grid;
+  changed();
+}
+
+function cellAt(ev) {
+  const r = $("view").getBoundingClientRect();
+  const x = Math.floor((ev.clientX - r.left - view.x) / view.z), y = Math.floor((ev.clientY - r.top - view.y) / view.z);
+  return x >= 0 && y >= 0 && x < W && y < H ? {x, y} : null;
+}
+
+function apply(c, t) {
+  const i = c.y * W + c.x;
+  if (t === "pick") { if (grid[i] >= 0) { setCur(grid[i]); setTool("paint"); } return; }
+  if (t === "fill") { flood(c.x, c.y, cur); return; }
+  const v = t === "erase" ? -1 : cur;
+  if (grid[i] !== v) { grid[i] = v; drawCell(c.x, c.y); dirtyStats(); }
+}
+
+function flood(x0, y0, v) {
+  const from = grid[y0 * W + x0];
+  if (from === v) return;
+  const st = [[x0, y0]];
+  while (st.length) {
+    const [x, y] = st.pop();
+    if (x < 0 || y < 0 || x >= W || y >= H || grid[y * W + x] !== from) continue;
+    grid[y * W + x] = v;
+    st.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+  }
+  changed();
+}
+
+function replaceAll(from, to) {
+  if (from === to) return;
+  pushUndo();
+  for (let i = 0; i < grid.length; i++) if (grid[i] === from) grid[i] = to;
+  changed();
+  toast("Swapped " + PAL[from].name + " for " + PAL[to].name + ".", "ok");
+}
+
+// ---------------------------------------------------------------- drawing
+const cv = $("view"), ctx = cv.getContext("2d");
+function resize() {
+  const r = $("main").getBoundingClientRect(), d = devicePixelRatio || 1;
+  cv.width = r.width * d; cv.height = r.height * d;
+  ctx.setTransform(d, 0, 0, d, 0, 0);
+  draw();
+}
+function fit() {
+  if (!grid) return;
+  const r = $("main").getBoundingClientRect();
+  view.z = Math.max(2, Math.min(40, Math.floor(Math.min((r.width - 80) / W, (r.height - 120) / H))));
+  view.x = Math.round((r.width - W * view.z) / 2);
+  view.y = Math.round((r.height - H * view.z) / 2 + 20);
+  draw();
+}
+function draw() {
+  const r = $("main").getBoundingClientRect();
+  ctx.clearRect(0, 0, r.width, r.height);
+  $("empty").style.display = grid ? "none" : "flex";
+  if (!grid) return;
+  ctx.imageSmoothingEnabled = false;
+  ctx.fillStyle = "rgba(255,255,255,0.03)";
+  ctx.fillRect(view.x, view.y, W * view.z, H * view.z);
+  const x0 = Math.max(0, Math.floor(-view.x / view.z)), y0 = Math.max(0, Math.floor(-view.y / view.z));
+  const x1 = Math.min(W, Math.ceil((r.width - view.x) / view.z)), y1 = Math.min(H, Math.ceil((r.height - view.y) / view.z));
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) drawCell(x, y, true);
+  if (view.z >= 10) {
+    ctx.strokeStyle = "rgba(0,0,0,0.25)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let x = x0; x <= x1; x++) { ctx.moveTo(view.x + x * view.z + .5, view.y + y0 * view.z); ctx.lineTo(view.x + x * view.z + .5, view.y + y1 * view.z); }
+    for (let y = y0; y <= y1; y++) { ctx.moveTo(view.x + x0 * view.z, view.y + y * view.z + .5); ctx.lineTo(view.x + x1 * view.z, view.y + y * view.z + .5); }
+    ctx.stroke();
+  }
+  ctx.strokeStyle = "rgba(255,122,26,0.7)";
+  ctx.strokeRect(view.x - .5, view.y - .5, W * view.z + 1, H * view.z + 1);
+  if (hover) {
+    ctx.strokeStyle = "#fff";
+    ctx.strokeRect(view.x + hover.x * view.z + .5, view.y + hover.y * view.z + .5, view.z - 1, view.z - 1);
+  }
+}
+function drawCell(x, y, bulk) {
+  const k = grid[y * W + x], px = view.x + x * view.z, py = view.y + y * view.z;
+  if (!bulk) ctx.clearRect(px, py, view.z, view.z);
+  if (k >= 0) ctx.drawImage(PAL[k].img, px, py, view.z, view.z);
+  else if (!bulk) { ctx.fillStyle = "rgba(255,255,255,0.03)"; ctx.fillRect(px, py, view.z, view.z); }
+}
+
+let statsTimer = 0;
+function dirtyStats() { clearTimeout(statsTimer); statsTimer = setTimeout(stats, 120); }
+function changed() {
+  draw();
+  stats();
+  const ok = !!grid;
+  $("send").disabled = $("download").disabled = !ok;
+}
+function stats() {
+  if (!grid) return;
+  const count = new Map();
+  let total = 0;
+  for (const k of grid) if (k >= 0) { count.set(k, (count.get(k) || 0) + 1); total++; }
+  $("sizeInfo").textContent = orient === "wall" ? `${W} wide × ${H} tall · ${total} blocks` : `${W} × ${H} floor · ${total} blocks`;
+  $("total").textContent = "· " + total + " blocks";
+  const box = $("used");
+  box.innerHTML = "";
+  [...count.entries()].sort((a, b) => b[1] - a[1]).forEach(([k, n]) => {
+    const d = document.createElement("div");
+    d.className = "u";
+    d.title = "Click: replace all " + PAL[k].name + " with the block you're painting with";
+    const st = Math.floor(n / 64), rest = n % 64;
+    d.innerHTML = `<img src="${PAL[k].tex}"><span>${PAL[k].name}</span><span class="c">${n}${st ? ` (${st}×64${rest ? "+" + rest : ""})` : ""}</span>`;
+    d.onclick = () => replaceAll(k, cur);
+    box.appendChild(d);
+  });
+}
+
+// ---------------------------------------------------------------- mouse & keys
+let painting = false, panning = null;
+cv.addEventListener("contextmenu", e => e.preventDefault());
+cv.addEventListener("mousedown", e => {
+  if (!grid) return;
+  if (e.button === 2 || e.button === 1 || spaceDown) { panning = {x: e.clientX - view.x, y: e.clientY - view.y}; return; }
+  const c = cellAt(e);
+  if (!c) return;
+  const t = e.altKey ? "pick" : tool;
+  if (t !== "pick") pushUndo();
+  apply(c, t);
+  painting = t === "paint" || t === "erase";
+});
+window.addEventListener("mouseup", () => { painting = false; panning = null; });
+cv.addEventListener("mousemove", e => {
+  if (panning) { view.x = e.clientX - panning.x; view.y = e.clientY - panning.y; draw(); return; }
+  const c = cellAt(e);
+  hover = c;
+  const tip = $("tip");
+  if (c && grid) {
+    const k = grid[c.y * W + c.x];
+    tip.style.display = "block";
+    tip.textContent = (k >= 0 ? PAL[k].name : "No block") + "  ·  " + (c.x + 1) + ", " + (orient === "wall" ? H - c.y : c.y + 1);
+    const r = $("main").getBoundingClientRect();
+    tip.style.left = (e.clientX - r.left + 14) + "px";
+    tip.style.top = (e.clientY - r.top + 14) + "px";
+  } else tip.style.display = "none";
+  if (painting && c) apply(c, tool);
+  else draw();
+});
+cv.addEventListener("mouseleave", () => { hover = null; $("tip").style.display = "none"; draw(); });
+cv.addEventListener("wheel", e => {
+  e.preventDefault();
+  const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+  const nz = Math.max(2, Math.min(64, view.z * (e.deltaY < 0 ? 1.2 : 1 / 1.2)));
+  view.x = mx - (mx - view.x) * nz / view.z;
+  view.y = my - (my - view.y) * nz / view.z;
+  view.z = nz;
+  draw();
+}, {passive: false});
+
+let spaceDown = false;
+window.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT") return;
+  if (e.code === "Space") { spaceDown = true; e.preventDefault(); }
+  const k = e.key.toLowerCase();
+  if ((e.ctrlKey || e.metaKey) && k === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); }
+  else if ((e.ctrlKey || e.metaKey) && k === "y") { e.preventDefault(); redo(); }
+  else if (k === "b") setTool("paint");
+  else if (k === "g") setTool("fill");
+  else if (k === "i") setTool("pick");
+  else if (k === "e") setTool("erase");
+  else if (k === "f") fit();
+});
+window.addEventListener("keyup", e => { if (e.code === "Space") spaceDown = false; });
+window.addEventListener("resize", resize);
+
+// ---------------------------------------------------------------- getting pictures in
+document.addEventListener("paste", e => {
+  for (const it of e.clipboardData.items) {
+    if (it.type.startsWith("image/")) { readFile(it.getAsFile()); e.preventDefault(); return; }
+  }
+  const text = e.clipboardData.getData("text");
+  if (e.target.tagName !== "INPUT" && /^https?:\/\//.test(text)) loadUrl(text.trim());
+});
+function readFile(f) {
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = () => loadImage(r.result);
+  r.readAsDataURL(f);
+  if (!$("name").dataset.touched && f.name) $("name").value = f.name.replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9_\- ]/g, "").slice(0, 40) || "my_build";
+}
+function loadUrl(u) {
+  // through the game, so any site's picture works (browsers block reading other sites' images directly)
+  toast("Fetching the picture…");
+  fetch("/api/fetch?url=" + encodeURIComponent(u)).then(r => r.ok ? r.blob() : r.text().then(t => { throw new Error(t); }))
+    .then(b => readFile(new File([b], "image")))
+    .catch(e => toast("Couldn't get that picture: " + e.message, "err"));
+}
+$("drop").onclick = () => $("file").click();
+$("file").onchange = e => readFile(e.target.files[0]);
+for (const el of [$("drop"), $("main")]) {
+  el.addEventListener("dragover", e => { e.preventDefault(); $("drop").classList.add("over"); });
+  el.addEventListener("dragleave", () => $("drop").classList.remove("over"));
+  el.addEventListener("drop", e => {
+    e.preventDefault();
+    $("drop").classList.remove("over");
+    const f = e.dataTransfer.files[0];
+    if (f) readFile(f);
+    else { const u = e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text"); if (u) loadUrl(u); }
+  });
+}
+$("url").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.value.trim()) loadUrl(e.target.value.trim()); });
+$("blank").onclick = newBlank;
+$("sample").onclick = sample;
+$("name").addEventListener("input", () => $("name").dataset.touched = "1");
+
+// settings
+let convTimer = 0;
+function reconvert() { clearTimeout(convTimer); convTimer = setTimeout(() => { convert(true); fit(); }, 150); }
+$("width").oninput = () => { $("wnum").value = $("width").value; if (img) reconvert(); };
+$("wnum").onchange = () => { $("width").value = $("wnum").value; if (img) reconvert(); };
+$("dither").onchange = $("transp").onchange = () => img && convert(true);
+$("maxColors").oninput = () => { const v = +$("maxColors").value; $("maxColorsV").textContent = v >= 64 ? "all" : v; if (img) reconvert(); };
+for (const b of $("orient").children) b.onclick = () => {
+  orient = b.dataset.v;
+  for (const o of $("orient").children) o.classList.toggle("on", o === b);
+  stats(); draw();
+};
+for (const b of $("tools").querySelectorAll("[data-t]")) b.onclick = () => setTool(b.dataset.t);
+$("undo").onclick = undo;
+$("redo").onclick = redo;
+$("fit").onclick = fit;
+$("search").oninput = buildPalette;
+
+// ---------------------------------------------------------------- saving
+/** Blocks in Sponge order (x fastest, then z, then y). Wall: picture stands up; floor: lies flat. */
+function exportData() {
+  const ids = [], map = new Map();
+  const idOf = k => {
+    const id = k < 0 ? "minecraft:air" : PAL[k].id;
+    if (!map.has(id)) { map.set(id, ids.length); ids.push(id); }
+    return map.get(id);
+  };
+  let w = W, h, d, data;
+  if (orient === "wall") {
+    h = H; d = 1; data = new Array(W * H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) data[x + y * W] = idOf(grid[(H - 1 - y) * W + x]);
+  } else {
+    h = 1; d = H; data = new Array(W * H);
+    for (let z = 0; z < H; z++) for (let x = 0; x < W; x++) data[x + z * W] = idOf(grid[z * W + x]);
+  }
+  return {w, h, d, palette: ids, data};
+}
+function cleanName() { return ($("name").value.replace(/[^A-Za-z0-9_\- ]/g, "").trim() || "my_build"); }
+
+$("send").onclick = async () => {
+  const body = Object.assign({name: cleanName(), load: true}, exportData());
+  $("send").disabled = true;
+  try {
+    const r = await fetch("/api/save", {method: "POST", headers: {"Content-Type": "application/json", "X-Magma": "1"}, body: JSON.stringify(body)});
+    if (!r.ok) throw new Error(await r.text());
+    const j = await r.json();
+    toast(j.inGame ? "Sent! It's showing in your game now. Hold a stick to move it, then type .build start"
+                   : "Saved as " + j.file + ". Join a world and type .build " + cleanName(), "ok");
+  } catch (e) { toast("Couldn't send it: " + e.message + " (is Minecraft still open?)", "err"); }
+  $("send").disabled = false;
+};
+
+$("download").onclick = async () => {
+  const e = exportData();
+  const blob = await schemBlob(e);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = cleanName() + ".schem";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+};
+
+/** Sponge v2 .schem: gzip'd NBT, written right here in the browser. */
+async function schemBlob({w, h, d, palette, data}) {
+  const out = [];
+  const u8 = v => out.push(v & 255);
+  const u16 = v => { u8(v >> 8); u8(v); };
+  const i32 = v => { u8(v >> 24); u8(v >> 16); u8(v >> 8); u8(v); };
+  const str = s => { const b = new TextEncoder().encode(s); u16(b.length); for (const x of b) u8(x); };
+  const tag = (t, n) => { u8(t); str(n); };
+  tag(10, "Schematic");
+  tag(3, "Version"); i32(2);
+  tag(3, "DataVersion"); i32(3955);
+  tag(2, "Width"); u16(w);
+  tag(2, "Height"); u16(h);
+  tag(2, "Length"); u16(d);
+  tag(10, "Palette");
+  palette.forEach((id, i) => { tag(3, id); i32(i); });
+  u8(0);
+  tag(3, "PaletteMax"); i32(palette.length);
+  const bytes = [];
+  for (let v of data) { while (v & ~0x7f) { bytes.push((v & 0x7f) | 0x80); v >>>= 7; } bytes.push(v); }
+  tag(7, "BlockData"); i32(bytes.length); for (const b of bytes) u8(b);
+  u8(0);
+  const raw = new Blob([new Uint8Array(out)]);
+  return await new Response(raw.stream().pipeThrough(new CompressionStream("gzip"))).blob();
+}
+
+let toastTimer = 0;
+function toast(msg, kind) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.className = "toast show " + (kind || "");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.className = "toast", kind === "err" ? 6000 : 4200);
+}
+
+init();
+</script>
+</body>
+</html>

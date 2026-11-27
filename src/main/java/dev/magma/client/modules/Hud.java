@@ -87,7 +87,7 @@ public class Hud extends Module {
 
         AutoMiner engine = ModuleManager.get(AutoMiner.class);
         BlockPos trip = engine.getGotoTarget();
-        if (minerCard.get() && trip != null && !engine.isEnabled()) {
+        if (minerCard.get() && trip != null && !engine.isEnabled() && !ModuleManager.get(Builder.class).isBuilding()) {
             boolean finding = ModuleManager.get(AutoFind.class).isEnabled();
             String title = finding ? "AutoFind \u00B7 " + ModuleManager.get(AutoFind.class).structure.get() : "Goto";
             int dist = (int) Math.sqrt(mc.player.blockPosition().distSqr(trip));
