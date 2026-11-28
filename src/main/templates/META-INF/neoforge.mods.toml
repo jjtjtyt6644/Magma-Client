@@ -10,7 +10,15 @@ logoFile="magma_logo.png"
 displayURL="https://github.com/jjtjtyt6644/Magma-Client"
 authors="Magma"
 description='''
-Client-side utility mod: Lava Guard (warns and blocks mining into lava), Ore X-Ray, Quartz Auto-Miner, and a modern ClickGUI (Right Shift).
+Magma Client - your all-in-one helper for Minecraft 1.21.1. Press Right Shift in a world to open the menu.
+
+Mining: AutoMiner finds your ores and digs to them safely, VeinMiner, X-Ray (ESP or Classic, works with Sodium), FastBreak, AutoTool.
+Building: Builder places any schematic for you, refills from supply chests and carries on by itself; Builder Studio turns pictures into builds or lets you design in 3D (opens in your browser).
+Travel: Goto, Base, AutoFind (villages, fortresses, strongholds...), Scaffold, Fly, Freecam.
+Safety: LavaGuard never lets you dig into lava, SafeWalk, NoFall, AutoEat.
+Also: VillagerRoller for any trade, AutoCombat, PlayerESP, Fullbright, a customisable HUD and help pop-ups.
+
+New here? The Magma Guide opens in your browser the first time you join a world (Guide in the menu, or type .guide).
 '''
 
 [[dependencies.${mod_id}]]

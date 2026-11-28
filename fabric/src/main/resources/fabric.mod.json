@@ -3,7 +3,7 @@
   "id": "magmaclient",
   "version": "${version}",
   "name": "Magma Client",
-  "description": "Auto miner that never digs into lava, safe Goto, Builder + Builder Studio, X-Ray and more. Right Shift opens the menu.",
+  "description": "All-in-one helper for Minecraft 1.21.1 - press Right Shift in a world. AutoMiner that never digs into lava, VeinMiner, X-Ray (works with Sodium), Builder that places any schematic and refills from supply chests, Builder Studio (pictures to builds, 3D editor in your browser), Goto, Base, AutoFind, VillagerRoller, AutoCombat, LavaGuard, SafeWalk, HUD and more. The Magma Guide opens the first time you join a world (or type .guide).",
   "authors": ["Magma"],
   "contact": { "homepage": "https://github.com/jjtjtyt6644/Magma-Client" },
   "license": "All Rights Reserved",

@@ -153,7 +153,7 @@ public class Builder extends Module {
         Builder b = ModuleManager.get(Builder.class);
         String[] a = msg.trim().split("\\s+");
         if (a.length == 1) {
-            Chat.info("Builder: .build <file> loads it | .build editor (image to schematic) | .build chest (add a supply chest) | .build start | .build stop | .build clear | .build here | .build rotate | .build list | .build folder");
+            Chat.info("Builder: .build <file> loads it | .build editor (open Builder Studio) | .build chest (add a supply chest) | .build start | .build stop | .build clear | .build here | .build rotate | .build list | .build folder");
             Chat.info("Put schematics (.schem, .litematic, .nbt) in " + Schematic.folder());
             return true;
         }

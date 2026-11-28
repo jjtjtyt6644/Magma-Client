@@ -1,8 +1,10 @@
 <p align="center"><img src="logo.png" width="128" alt="Magma Client logo"></p>
 
-# Magma Client v1.14.3
+# Magma Client v1.14.4
 
-A client-side utility mod for **Minecraft 1.21.1** on **NeoForge** (21.1.259+) and **Fabric** (Fabric API required): an auto miner that never digs into lava, safe Goto, a structure finder, X-Ray and more, with a clean menu on **Right Shift**.
+A client-side helper mod for **Minecraft 1.21.1** on **NeoForge** (21.1.259+) and **Fabric** (Fabric API required): an auto miner that never digs into lava, a Builder that places any schematic (with a picture-to-build studio in your browser), safe Goto, a structure finder, X-Ray and more, with a clean menu on **Right Shift**.
+
+**New here?** The **Magma Guide** opens in your browser the first time you join a world. It explains every feature in plain words. Open it again any time with **Guide** in the menu or `.guide` in chat.
 
 > Use it in single-player or on servers that allow it. X-Ray and automation break the rules on most public servers.
 
@@ -29,9 +31,15 @@ Magma updates itself from this repo's Releases. When a new version is out, a ban
 ## The menu (Right Shift)
 - **Home**: quick actions (**Start mining**, **Go to coordinates**, **Find a structure**), the cheats that are on right now, and live status.
 - **Safety / World / Movement / Combat / Automation / Render / Client**: one row per module. Click to toggle, ▾ for its settings, middle-click to bind a key. Each module shows only its key settings; **Show advanced settings** reveals the rest. **Add-ons** suggests modules that work well together.
-- **Settings**: theme, menu style, menu key and updates.
+- **Settings**: theme, menu style, menu key, **Tips** (help pop-ups) and updates.
+- **Guide ↗**: opens the Magma Guide (`localhost:25591`) in your browser.
 
 Start typing anywhere to search. Tab switches pages. In chat, `.toggle <module>` (or `.t fly`) switches any module.
+
+## Help built in
+- **Notification cards** (bottom-right) say what's happening and what to do. A running job (like fetching materials) updates its own card.
+- **How-to cards**: the first time you switch a feature on, a card explains how to use it.
+- **Stuck hints**: if a feature seems stuck (X-Ray sees no ores, Builder loaded but never started, AutoFind looking for a Fortress outside the Nether...), a card tells you what to do. Turn these off with Settings → **Tips**.
 
 ## Modules
 | Module | What it does |
@@ -42,12 +50,12 @@ Start typing anywhere to search. Tab switches pages. In chat, `.toggle <module>`
 | **Goto** | Walks to X Y Z safely (or type `.goto x y z` in chat). Sprints on safe stretches, shows a beam, the distance and an ETA, and converts Overworld/Nether coordinates. **Last Death** fills in where you died. |
 | **Base** | Saves your base location (**Set here** or type X/Y/Z). Turn it on, or type `.base`, to walk home. Goto's **Base** button and `.goto base` use it, and AutoMiner can **Return To Base When Full**. `.base set` saves where you stand. |
 | **AutoFind** | Finds a fortress, bastion, village, stronghold and more by their blocks, then walks there. Explores in a spiral, skips structures you've visited, and has **Find Next**. |
-| **Builder** | Builds schematics for you. `.build <name>` loads a `.schem` / `.litematic` / `.nbt` from `.minecraft/schematics` as a see-through ghost. **Hold a stick:** right-click moves it, left-click rotates it, arrow keys (or Shift+scroll) nudge it, PgUp/PgDn raise/lower it. Then `.build start`: it builds bottom-up, faces every block the right way, pillars or (in creative) flies into reach, scaffolds floating blocks and removes the scaffolding. The panel shows missing materials. It places everything in reach at once and steps out of the way if you stand where a block goes. The schematic stays put when you leave the world or restart, and a build in progress carries on when you're back. `.build stop` pauses, `.build clear` removes it. |
-| **Builder Studio** | `.build editor` (or Builder → Open editor) opens a website on your PC. **Picture tab:** paste/drop a picture, pick size, wall or floor and which blocks to use (real block colours), adjust brightness/contrast/colour, remove the background, choose Flat/Pattern/Smooth shading, then paint/fill/swap to touch it up. **3D Editor tab:** edit in 3D like Minecraft with every block (glass, stairs, slabs, fences, plants...) — open any schematic from your game, turn the picture into blocks, or start empty; right-click place, left-click break, middle-click pick, blocks face the way you look; **Box / Walls / Line / Replace** tools fill floors, ceilings and walls in two clicks; hotbar 1-9, a layer slider to see inside, undo, and a **Fly** mode (WASD + mouse). **Send to Minecraft** shows it in your game ready to place; **Download** saves a `.schem`. Everything you do in the studio saves by itself (to `config/magma_studio.json`) and comes back next time. |
+| **Builder** | Builds schematics for you. Switching it on opens **Builder Studio**, and its settings show a **step-by-step guide** with buttons. `.build <name>` loads a `.schem` / `.litematic` / `.nbt` from `.minecraft/schematics` as a see-through ghost. **Hold a stick:** right-click moves it, left-click rotates it, arrow keys (or Shift+scroll) nudge it, PgUp/PgDn raise/lower it. Then `.build start`: it builds bottom-up, faces every block the right way, pillars or (in creative) flies into reach, scaffolds floating blocks and removes the scaffolding. The panel shows missing materials. It places everything in reach at once and steps out of the way if you stand where a block goes. Wrong blocks in the way are cleared from the outside in; in creative it flies over obstacles and breaks terrain in its path (never your finished build or chests). **Supply chests:** press **Pick a chest** (or `.build chest`) and right-click a chest with your blocks; when something runs out it walks there, takes more and carries on. Out of everything? It pauses and carries on by itself once the blocks are in your inventory. The schematic stays put when you leave the world or restart, and a build in progress carries on when you're back. `.build stop` pauses, `.build clear` removes it. |
+| **Builder Studio** | Switch Builder on, press **Open Studio**, or type `.build editor`: a website opens on your PC (`localhost:25590`). **Picture tab:** paste/drop a picture, pick size, wall or floor and which blocks to use (real block colours), adjust brightness/contrast/colour, remove the background, choose Flat/Pattern/Smooth shading, then paint/fill/swap to touch it up. **3D Editor tab:** edit in 3D like Minecraft with every block (glass, stairs, slabs, fences, plants...) — open any schematic from your game, turn the picture into blocks, or start empty; right-click place, left-click break, middle-click pick, blocks face the way you look; **Box / Walls / Line / Replace** tools fill floors, ceilings and walls in two clicks; hotbar 1-9, a layer slider to see inside, undo, and a **Fly** mode (WASD + mouse). **Send to Minecraft** shows it in your game ready to place; **Download** saves a `.schem`. Everything you do in the studio saves by itself (to `config/magma_studio.json`) and comes back next time. |
 | **Fly** | Fly in any game mode with a speed slider (1 = vanilla creative). Landing after you switch it off is safe. |
 | **NoFall** | No fall damage. |
 | **Freecam** | Detach the camera and fly around (through walls) to look at your surroundings; your character stays put and is outlined. |
-| **X-Ray** | See-through ore blocks with a glow, for all vanilla and modded ores. |
+| **X-Ray** (`X`) | Ores through walls for all vanilla and modded ores. **ESP** outlines them, **Classic** hides every other block (works with Sodium; with Embeddium it uses ESP), **Both** does both. |
 | **Scaffold** | Places blocks under your feet as you walk off edges (safe, fast bridging); hold jump to tower up. |
 | **FastPlace** | No 4-tick delay between block placements. |
 | **VeinMiner** | Break one ore or log and the whole vein or tree drops at once (singleplayer; on servers it mines the rest for you). |
