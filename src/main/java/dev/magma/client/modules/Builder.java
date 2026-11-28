@@ -293,6 +293,7 @@ public class Builder extends Module {
         if (!resume) startedAt = System.currentTimeMillis();
         resetRestock();
         badAside.clear();
+        flyBad.clear();
         rescan();
         totalPlace = resume ? Math.max(totalPlace, toPlace) : toPlace; // resuming keeps the percentage going
         ensureJunk();
@@ -534,6 +535,17 @@ public class Builder extends Module {
         stopMoving();
         if (w.breakIt()) {
             status = "Clearing " + pos.toShortString();
+            if (mc.player.getAbilities().instabuild) {
+                // creative breaks instantly: clear every wrong block in reach this tick (a few at a time)
+                int n = 0;
+                for (Work o : new ArrayList<>(todo)) {
+                    if (!o.breakIt() || !inReach(o.pos()) || mc.level.getBlockState(o.pos()).isAir()) continue;
+                    mc.gameMode.startDestroyBlock(o.pos(), Direction.getNearest(mc.player.getEyePosition().subtract(Vec3.atCenterOf(o.pos()))));
+                    todo.remove(o);
+                    if (++n >= 8) break;
+                }
+                if (n > 0) { mc.player.swing(InteractionHand.MAIN_HAND); return; }
+            }
             breakBlock(pos);
             return;
         }
@@ -948,16 +960,23 @@ public class Builder extends Module {
         double dist = d.length();
         flyTicks++;
         if (dist < flyBest - 0.25) { flyBest = dist; flyBestTick = flyTicks; }
-        // no progress for 3 s (walled in, ceiling...): try a different spot, then give up on this block for now
+        // no progress for 3 s: that spot is no good - try another one, and after a couple, leave this block for later
         if (flyTicks - flyBestTick > 60 || flyTicks > 20 * 12) {
             mc.player.setDeltaMovement(Vec3.ZERO);
-            defer(pos, 200);
+            flyBad.add(flyGoal);
+            if (++flyRetries >= 2) { defer(pos, 200); flyRetries = 0; }
             flyFor = null;
             flyGoal = null;
             return;
         }
         if (dist < 0.25) { mc.player.setDeltaMovement(Vec3.ZERO); return; }
         Vec3 v = d.normalize().scale(Math.min(0.7, Math.max(0.15, dist * 0.45)));
+        // creative: leaves, terrain etc. in the way get broken (instant) instead of us pushing into them
+        if (mc.player.getAbilities().instabuild && clearWay(v)) {
+            status = "Clearing the way to " + pos.toShortString();
+            mc.player.setDeltaMovement(v.scale(0.4));
+            return;
+        }
         // something between us and the spot (or we bumped into it): rise over it first instead of pushing into it
         Vec3 goalEye = goal.add(0, 1.62, 0);
         boolean blocked = !clearPath(mc.player.getEyePosition(), goalEye) || !clearPath(mc.player.position().add(0, 0.2, 0), goal.add(0, 0.2, 0));
@@ -975,6 +994,32 @@ public class Builder extends Module {
     }
 
     private BlockPos flyFor, flyGoal;
+    private int flyRetries;
+    private final Set<BlockPos> flyBad = new HashSet<>();
+
+    /**
+     * Break whatever blocks our body would hit moving along v (creative only - it's instant there). Never breaks blocks
+     * that are already correctly part of the build, containers (supply chests!) or unbreakable blocks.
+     */
+    private boolean clearWay(Vec3 v) {
+        AABB sweep = mc.player.getBoundingBox().expandTowards(v.normalize().scale(1.2)).inflate(0.02);
+        int broke = 0;
+        for (BlockPos b : BlockPos.betweenClosed(BlockPos.containing(sweep.minX, sweep.minY, sweep.minZ), BlockPos.containing(sweep.maxX, sweep.maxY, sweep.maxZ))) {
+            BlockState st = mc.level.getBlockState(b);
+            if (st.getCollisionShape(mc.level, b).isEmpty()) continue;
+            if (!st.getCollisionShape(mc.level, b).bounds().move(b).intersects(sweep)) continue;
+            if (st.getDestroySpeed(mc.level, b) < 0 || mc.level.getBlockEntity(b) != null) continue;
+            if (origin != null) {
+                BlockState want = schem.blocks.get(b.subtract(origin));
+                if (want != null && !want.isAir() && matches(st, want)) continue; // that's our build - go around it
+            }
+            BlockPos hit = b.immutable();
+            mc.gameMode.startDestroyBlock(hit, Direction.getNearest(mc.player.getEyePosition().subtract(Vec3.atCenterOf(hit))));
+            mc.player.swing(InteractionHand.MAIN_HAND);
+            if (++broke >= 3) break;
+        }
+        return broke > 0;
+    }
     private double flyBest;
     private int flyBestTick, climbTicks;
 
@@ -1000,7 +1045,7 @@ public class Builder extends Module {
         Vec3 me = mc.player.position();
         for (int dx = -4; dx <= 4; dx++) for (int dz = -4; dz <= 4; dz++) for (int dy = -3; dy <= 2; dy++) {
             BlockPos c = target.offset(dx, dy, dz);
-            if (!free(c) || !free(c.above()) || targets.contains(c) || targets.contains(c.above())) continue;
+            if (!free(c) || !free(c.above()) || targets.contains(c) || targets.contains(c.above()) || flyBad.contains(c)) continue;
             if (c.equals(target) || c.above().equals(target)) continue;
             Vec3 eye = Vec3.atBottomCenterOf(c).add(0, 1.62, 0);
             if (eye.distanceTo(Vec3.atCenterOf(target)) > reach) continue;
