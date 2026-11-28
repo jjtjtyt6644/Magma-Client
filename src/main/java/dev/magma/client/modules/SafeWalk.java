@@ -94,6 +94,11 @@ public class SafeWalk extends Module {
             b = b.below();
         }
         boolean scaffold = !autoMiner && ModuleManager.get(Scaffold.class).isEnabled(); // Scaffold fills the gap: walking off is fine
+        // Builder moves you around its own build (steps off its scaffolds on purpose), and in creative / while flying a
+        // drop can't hurt you: edges don't matter then (lava still does)
+        boolean builder = ModuleManager.get(Builder.class).isBuilding();
+        boolean cantFall = mc.player.getAbilities().instabuild || mc.player.getAbilities().flying;
+        if (builder || cantFall) return null;
         if ((edges.get() && !scaffold || autoMiner) && air > limit) return "drop of " + air + (air >= 32 ? "+" : "") + " blocks";
         if (air == 0 && checkLava && hurtFloor(c.below())) return "magma/campfire floor";
         return null;

@@ -637,8 +637,8 @@ public class Builder extends Module {
         if (mc.player.getAbilities().mayfly) {
             mc.player.getAbilities().flying = true;
             double dy = want - mc.player.getY();
-            mc.player.setDeltaMovement(mc.player.getDeltaMovement().x * 0.5, dy > 0 ? Math.max(0.2, Math.min(0.6, dy * 0.6)) : 0,
-                    mc.player.getDeltaMovement().z * 0.5);
+            mc.player.setDeltaMovement(capHeight(new Vec3(mc.player.getDeltaMovement().x * 0.5, dy > 0 ? Math.max(0.2, Math.min(0.6, dy * 0.6)) : 0,
+                    mc.player.getDeltaMovement().z * 0.5)));
         } else {
             mc.options.keyJump.setDown(true); // jump: they get placed under us at the top of the jump
         }
@@ -698,7 +698,7 @@ public class Builder extends Module {
             else {
                 Vec3 v = d.normalize().scale(Math.max(0.12, Math.min(0.6, d.length() * 0.5)));
                 if (mc.player.horizontalCollision && free(feet.above(2))) v = new Vec3(v.x * 0.3, 0.35, v.z * 0.3);
-                mc.player.setDeltaMovement(v);
+                mc.player.setDeltaMovement(capHeight(v));
             }
         } else {
             // a short hop to the side: steer straight at it
@@ -977,10 +977,20 @@ public class Builder extends Module {
             mc.player.setDeltaMovement(v.scale(0.4));
             return;
         }
-        // something between us and the spot (or we bumped into it): rise over it first instead of pushing into it
-        Vec3 goalEye = goal.add(0, 1.62, 0);
-        boolean blocked = !clearPath(mc.player.getEyePosition(), goalEye) || !clearPath(mc.player.position().add(0, 0.2, 0), goal.add(0, 0.2, 0));
-        if (mc.player.horizontalCollision || blocked && d.horizontalDistance() > 0.6) climbTicks = Math.max(climbTicks, 4);
+        // bumped into something we may not break (our own build): rise over it for a moment. Terrain in the way was
+        // already broken by clearWay above, so far-away obstacles don't matter - just fly straight
+        if (mc.player.horizontalCollision) climbTicks = Math.max(climbTicks, 4);
+        // never climb more than a few blocks above where we're going: if it's still in the way up there (usually the
+        // build itself, which we don't break), this spot is no good - pick another instead of flying off into the sky
+        if (climbTicks > 0 && mc.player.getY() > goal.y + 3) {
+            climbTicks = 0;
+            mc.player.setDeltaMovement(Vec3.ZERO);
+            flyBad.add(flyGoal);
+            if (++flyRetries >= 3) { defer(pos, 200); flyRetries = 0; }
+            flyFor = null;
+            flyGoal = null;
+            return;
+        }
         if (climbTicks > 0) {
             climbTicks--;
             boolean ceiling = !free(mc.player.blockPosition().above(2));
@@ -990,7 +1000,15 @@ public class Builder extends Module {
                 v = new Vec3(side.x, 0, side.z);
             } else v = new Vec3(v.x * 0.3, 0.45, v.z * 0.3);
         }
-        mc.player.setDeltaMovement(v);
+        mc.player.setDeltaMovement(capHeight(v));
+    }
+
+    /** Hard ceiling: never rise more than a few blocks above the top of the build. */
+    private Vec3 capHeight(Vec3 v) {
+        if (origin == null || schem == null) return v;
+        double top = origin.getY() + schem.sizeY + 3;
+        if (mc.player.getY() >= top && v.y > 0) return new Vec3(v.x, mc.player.getY() > top + 1 ? -0.3 : 0, v.z);
+        return v;
     }
 
     private BlockPos flyFor, flyGoal;
@@ -1008,11 +1026,7 @@ public class Builder extends Module {
             BlockState st = mc.level.getBlockState(b);
             if (st.getCollisionShape(mc.level, b).isEmpty()) continue;
             if (!st.getCollisionShape(mc.level, b).bounds().move(b).intersects(sweep)) continue;
-            if (st.getDestroySpeed(mc.level, b) < 0 || mc.level.getBlockEntity(b) != null) continue;
-            if (origin != null) {
-                BlockState want = schem.blocks.get(b.subtract(origin));
-                if (want != null && !want.isAir() && matches(st, want)) continue; // that's our build - go around it
-            }
+            if (!diggable(b)) continue; // our finished build, chests, bedrock: go around those
             BlockPos hit = b.immutable();
             mc.gameMode.startDestroyBlock(hit, Direction.getNearest(mc.player.getEyePosition().subtract(Vec3.atCenterOf(hit))));
             mc.player.swing(InteractionHand.MAIN_HAND);
@@ -1022,6 +1036,17 @@ public class Builder extends Module {
     }
     private double flyBest;
     private int flyBestTick, climbTicks;
+
+    /** Plain terrain we may break to make room (not part of the finished build, not a container, not bedrock). */
+    private boolean diggable(BlockPos b) {
+        BlockState st = mc.level.getBlockState(b);
+        if (st.getDestroySpeed(mc.level, b) < 0 || mc.level.getBlockEntity(b) != null || !st.getFluidState().isEmpty()) return false;
+        if (origin != null) {
+            BlockState want = schem.blocks.get(b.subtract(origin));
+            if (want != null && !want.isAir() && matches(st, want)) return false;
+        }
+        return true;
+    }
 
     /** Nothing solid between these two points. */
     private boolean clearPath(Vec3 from, Vec3 to) {
@@ -1040,16 +1065,24 @@ public class Builder extends Module {
         Set<BlockPos> targets = new HashSet<>();
         for (Work w : todo) if (!w.breakIt()) targets.add(w.pos());
         double reach = mc.player.blockInteractionRange() - 0.6;
+        boolean creative = mc.player.getAbilities().instabuild;
         BlockPos best = null;
         double bd = Double.MAX_VALUE;
         Vec3 me = mc.player.position();
         for (int dx = -4; dx <= 4; dx++) for (int dz = -4; dz <= 4; dz++) for (int dy = -3; dy <= 2; dy++) {
             BlockPos c = target.offset(dx, dy, dz);
-            if (!free(c) || !free(c.above()) || targets.contains(c) || targets.contains(c.above()) || flyBad.contains(c)) continue;
-            if (c.equals(target) || c.above().equals(target)) continue;
+            if (flyBad.contains(c) || c.equals(target) || c.above().equals(target)) continue;
+            // creative can dig itself a space out of terrain (never out of the finished build)
+            boolean cFree = free(c), aFree = free(c.above());
+            if (!cFree && !(creative && diggable(c)) || !aFree && !(creative && diggable(c.above()))) continue;
+            // standing where a block goes is fine if that block goes in later (higher up: we build bottom-up)
+            boolean cT = targets.contains(c), aT = targets.contains(c.above());
+            if (cT && c.getY() <= target.getY() || aT && c.getY() + 1 <= target.getY()) continue;
             Vec3 eye = Vec3.atBottomCenterOf(c).add(0, 1.62, 0);
             if (eye.distanceTo(Vec3.atCenterOf(target)) > reach) continue;
             double d = me.distanceToSqr(Vec3.atBottomCenterOf(c)) + (dy > 0 ? dy * 0.5 : 0);
+            if (!cFree || !aFree) d += 60;  // has to dig first
+            if (cT || aT) d += 15;          // in a later block's spot: fine, but a real gap is nicer
             // a spot we can't fly straight to (it's behind the wall we're building, or behind terrain) is a last resort:
             // flying at it just pushes us into the blocks in between
             if (!clearPath(mc.player.getEyePosition(), Vec3.atBottomCenterOf(c).add(0, 1.62, 0))
