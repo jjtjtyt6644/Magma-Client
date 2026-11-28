@@ -75,7 +75,7 @@ public final class Updater {
     public static void installAndRestart() {
         if (!canInstall() && !preview()) {
             message = "Test copy - this button works in your real modpack";
-            Notify.show("Test copy can't update itself - works in the real modpack", Theme.WARN);
+            Notify.show("This test copy can't update itself", "Updating works in your real game, where Magma is a jar in the mods folder.", Theme.WARN);
             return;
         }
         if (state == State.READY) {
@@ -94,7 +94,7 @@ public final class Updater {
         var mc = net.minecraft.client.Minecraft.getInstance();
         if (preview()) {
             quitWhenReady = false;
-            Notify.show("Test copy: here Minecraft would save, close and install v" + latest, Theme.OK);
+            Notify.show("Update test", "In your real game Minecraft would now save, close, install v" + latest + " and reopen.", Theme.OK);
             message = "Preview done - in your modpack this restarts into v" + latest;
             return;
         }

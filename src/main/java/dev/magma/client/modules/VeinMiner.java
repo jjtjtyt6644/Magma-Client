@@ -124,7 +124,7 @@ public class VeinMiner extends Module {
             }
             for (var orb : level.getEntitiesOfClass(net.minecraft.world.entity.ExperienceOrb.class, box)) orb.setPos(at.x, at.y, at.z);
             int n = done;
-            if (n > 0) mc.execute(() -> dev.magma.client.util.Notify.show("VeinMiner: " + (n + 1) + " blocks", dev.magma.client.util.Theme.OK));
+            if (n > 0) mc.execute(() -> dev.magma.client.util.Notify.show("VeinMiner: " + (n + 1) + " blocks at once", "The whole vein dropped where you mined. Your tool took the wear for every block.", dev.magma.client.util.Theme.OK));
         });
     }
 

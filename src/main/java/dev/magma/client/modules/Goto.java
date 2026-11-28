@@ -50,7 +50,7 @@ public class Goto extends Module {
     private void useBase() {
         BlockPos t = ModuleManager.get(Base.class).targetFromHere();
         if (t == null) {
-            dev.magma.client.util.Notify.show("Set your Base first (Base module)", dev.magma.client.util.Theme.WARN);
+            dev.magma.client.util.Notify.show("No base set yet", "Stand at your base and type .base set (or use Set here in the Base module).", dev.magma.client.util.Theme.WARN);
             return;
         }
         x.set(String.valueOf(t.getX()));
@@ -61,7 +61,7 @@ public class Goto extends Module {
 
     private void useLastDeath() {
         if (deathPos == null || mc.level == null || mc.level.dimension() != deathDim) {
-            dev.magma.client.util.Notify.show("No death point in this dimension", dev.magma.client.util.Theme.WARN);
+            dev.magma.client.util.Notify.show("No death point here", "Your last death was in another dimension - go there first, then use Last Death.", dev.magma.client.util.Theme.WARN);
             return;
         }
         x.set(String.valueOf(deathPos.getX()));

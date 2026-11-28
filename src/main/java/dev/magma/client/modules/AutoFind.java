@@ -187,7 +187,7 @@ public class AutoFind extends Module {
                 exploring = false;
                 int dist = (int) Math.sqrt(hit.distSqr(mc.player.blockPosition()));
                 Chat.info("AutoFind: " + structure.get() + " found at " + hit.toShortString() + " (" + dist + " blocks). Heading there.");
-                Notify.show(structure.get() + " found - " + dist + "m", Theme.OK);
+                Notify.show(structure.get() + " found " + dist + "m away", "Walking there now - your route avoids lava and big drops. Turn AutoFind off to stop.", Theme.OK);
                 go(hit);
                 return;
             }
@@ -213,7 +213,7 @@ public class AutoFind extends Module {
                 if (d <= 32) {
                     visited.add(chunkKey(found));
                     Chat.info("AutoFind: arrived at the " + structure.get() + ".");
-                    Notify.show("Arrived at " + structure.get(), Theme.OK);
+                    Notify.show("Arrived at the " + structure.get(), "Use Find Next to look for another one.", Theme.OK);
                     setEnabled(false);
                 } else if (++retries <= 3) {
                     status = "Retrying route (" + retries + "/3)";

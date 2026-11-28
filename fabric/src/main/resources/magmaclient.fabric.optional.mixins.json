@@ -10,7 +10,9 @@
     "ClientCommonPacketListenerMixin",
     "EntityTurnMixin",
     "GuiCameraPlayerMixin",
-    "MinecraftAccessor"
+    "MinecraftAccessor",
+    "compat.SodiumBlockRendererMixin",
+    "compat.SodiumOcclusionMixin"
   ],
   "injectors": { "defaultRequire": 0 }
 }

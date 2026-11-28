@@ -13,7 +13,7 @@ import org.slf4j.Logger;
 public final class MagmaClient {
     public static final String MODID = "magmaclient";
     public static final String NAME = "Magma";
-    public static final String VERSION = "1.12.0";
+    public static final String VERSION = "1.13.0";
     public static final Logger LOGGER = LogUtils.getLogger();
     /** "neoforge" or "fabric": which jar the updater downloads. */
     public static String LOADER = "neoforge";
@@ -30,6 +30,7 @@ public final class MagmaClient {
     public static void setup() {
         ModuleManager.init();
         ConfigManager.load();
+        ModuleManager.get(dev.magma.client.modules.Hud.class).applyDefaults();
         dev.magma.client.util.Updater.resumePending();
         var cg = ModuleManager.get(dev.magma.client.modules.ClickGui.class);
         if (cg.checkUpdates.get()) dev.magma.client.util.Updater.checkAsync(cg.autoUpdate.get());

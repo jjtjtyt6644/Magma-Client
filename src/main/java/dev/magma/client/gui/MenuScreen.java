@@ -12,6 +12,8 @@ import dev.magma.client.modules.LavaGuard;
 import dev.magma.client.modules.AutoMiner;
 import dev.magma.client.modules.VillagerRoller;
 import dev.magma.client.modules.Xray;
+import dev.magma.client.modules.Builder;
+import net.minecraft.core.BlockPos;
 import dev.magma.client.setting.BoolSetting;
 import dev.magma.client.setting.ModeSetting;
 import dev.magma.client.setting.NumberSetting;
@@ -445,6 +447,8 @@ public class MenuScreen extends Screen {
             y += ((active.size() + 1) / 2) * 25 + 6;
         }
 
+        y = drawProgress(g, x, y, w);
+
         // live status
         y = section(g, "Status", x, y, w);
         VillagerRoller vr = ModuleManager.get(VillagerRoller.class);
@@ -477,6 +481,89 @@ public class MenuScreen extends Screen {
         y += rows.length * 18 + 12;
 
         return y;
+    }
+
+    private double gotoStartDist = -1;
+    private BlockPos gotoFor;
+
+    /** Bars for anything that's working towards a goal: the build, a Goto trip, ores X-Ray can see. */
+    private float drawProgress(GuiGraphics g, float x, float y, float w) {
+        List<Object[]> bars = new ArrayList<>(); // label, detail, fraction, colour
+        Builder b = ModuleManager.get(Builder.class);
+        float bp = b.progress();
+        if (bp >= 0) bars.add(new Object[]{"Building " + b.schematicName(), (int) (bp * 100) + "% · " + b.blocksLeft() + " blocks left · " + b.status(), bp, Theme.accent()});
+        AutoMiner am = ModuleManager.get(AutoMiner.class);
+        BlockPos gt = am.getGotoTarget();
+        if (gt != null && minecraft.player != null) {
+            double d = Math.sqrt(minecraft.player.blockPosition().distSqr(gt));
+            if (!gt.equals(gotoFor) || d > gotoStartDist) { gotoFor = gt; gotoStartDist = Math.max(1, d); }
+            float f = (float) Math.max(0, Math.min(1, 1 - d / gotoStartDist));
+            bars.add(new Object[]{am.tripLabel + " → " + gt.toShortString(), String.format("%.0fm to go", d), f, Theme.OK});
+        } else gotoFor = null;
+        VillagerRoller vr = ModuleManager.get(VillagerRoller.class);
+        if (vr.isEnabled()) bars.add(new Object[]{"VillagerRoller", vr.getAttempts() + " rolls · " + vr.getStatus(), -1f, 0xFFFFB74D});
+        Xray xr = ModuleManager.get(Xray.class);
+        var counts = xr.isEnabled() ? xr.counts() : java.util.Map.<String, Integer>of();
+        if (bars.isEmpty() && counts.isEmpty()) return y;
+        y = section(g, "Progress", x, y, w);
+        long t = System.currentTimeMillis();
+        for (Object[] bar : bars) {
+            float f = (float) bar[2];
+            int col = (int) bar[3];
+            Render2D.roundedRect(g, x, y, w, 30, ROW_R, a(SURFACE));
+            text(g, clip((String) bar[0], (int) w / 2), x + 9, y + 5, Theme.TEXT);
+            String det = clip((String) bar[1], (int) w / 2 - 14);
+            text(g, det, x + w - 9 - font.width(det), y + 5, 0xFF8A92A3);
+            float bx = x + 9, bw = w - 18, by = y + 19;
+            Render2D.roundedRect(g, bx, by, bw, 5, 2, a(0x22FFFFFF));
+            if (f >= 0) {
+                Object k = "prog:" + bar[0];
+                float shown = anim(k, f, 6); // slides to the new value
+                Render2D.roundedRect(g, bx, by, Math.max(5, bw * shown), 5, 2, a(col));
+            } else {
+                // no end in sight: a sliding stripe shows it's working
+                float p = (t % 1600) / 1600f;
+                Render2D.roundedRect(g, bx + (bw - bw * 0.25f) * p, by, bw * 0.25f, 5, 2, a(col));
+            }
+            y += 34;
+        }
+        if (!counts.isEmpty()) {
+            // ores X-Ray sees right now, as a small bar chart
+            int max = counts.values().stream().mapToInt(Integer::intValue).max().orElse(1);
+            List<java.util.Map.Entry<String, Integer>> list = new ArrayList<>(counts.entrySet());
+            list.sort((p1, p2) -> p2.getValue() - p1.getValue());
+            if (list.size() > 6) list = list.subList(0, 6);
+            float rh = 13;
+            Render2D.roundedRect(g, x, y, w, list.size() * rh + 22, ROW_R, a(SURFACE));
+            text(g, "Ores X-Ray can see", x + 9, y + 5, Theme.TEXT_DIM);
+            float ly = y + 18;
+            for (var e : list) {
+                String name = e.getKey().replace(" Ore", "");
+                text(g, clip(name, 90), x + 9, ly + 2, 0xFFAEB6C4);
+                float bx = x + 105, bw = w - 105 - 40;
+                float f = anim("ore:" + e.getKey(), e.getValue() / (float) max, 8);
+                Render2D.roundedRect(g, bx, ly + 3, Math.max(3, bw * f), 6, 2, a(oreColor(e.getKey())));
+                text(g, String.valueOf(e.getValue()), x + w - 34, ly + 2, Theme.TEXT);
+                ly += rh;
+            }
+            y += list.size() * rh + 28;
+        }
+        return y;
+    }
+
+    private static int oreColor(String name) {
+        String n = name.toLowerCase();
+        if (n.contains("diamond")) return 0xFF4DD0E1;
+        if (n.contains("emerald")) return 0xFF66BB6A;
+        if (n.contains("gold")) return 0xFFFFD54F;
+        if (n.contains("iron")) return 0xFFD7A98C;
+        if (n.contains("redstone")) return 0xFFEF5350;
+        if (n.contains("lapis")) return 0xFF5C6BC0;
+        if (n.contains("copper")) return 0xFFE0874F;
+        if (n.contains("coal")) return 0xFF8D8D8D;
+        if (n.contains("debris")) return 0xFFA1887F;
+        if (n.contains("quartz")) return 0xFFEEEEEE;
+        return Theme.accent();
     }
 
     /** Big, obvious buttons for the three things people do most. */
@@ -939,7 +1026,7 @@ public class MenuScreen extends Screen {
         chit(rx, y, rw, 16, rk, btn -> {
             for (Setting<?> st : m.getSettings()) if (!(st instanceof dev.magma.client.setting.ButtonSetting)) st.reset();
             ConfigManager.save();
-            dev.magma.client.util.Notify.show(m.getName() + " settings reset", Theme.WARN);
+            dev.magma.client.util.Notify.show(m.getName() + " settings reset", "Every setting of " + m.getName() + " is back to its default value.", Theme.WARN);
         }, "Put every setting of " + m.getName() + " back to its default (keeps the keybind).");
     }
 

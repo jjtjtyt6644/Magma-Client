@@ -56,11 +56,13 @@ public final class EditorServer {
     public static void open() {
         try {
             int port = start();
-            String url = "http://127.0.0.1:" + port + "/";
-            net.minecraft.Util.getPlatform().openUri(url);
-            Chat.info("Image converter opened in your browser: " + url);
+            String url = "http://localhost:" + port + "/";
+            net.minecraft.Util.getPlatform().openUri(url); // your default browser
+            Chat.info("Builder Studio is open in your browser: " + url);
+            Notify.show("Builder Studio opened in your browser", "Go to localhost:" + port + " - paste a picture or build in 3D, then press Send to Minecraft. Your work saves by itself.", Theme.OK);
         } catch (Exception e) {
-            Chat.info("Couldn't start the image converter: " + e.getMessage());
+            Chat.info("Couldn't start Builder Studio: " + e.getMessage());
+            Notify.show("Builder Studio didn't start", String.valueOf(e.getMessage()), Theme.DANGER);
             MagmaClient.LOGGER.error("[Magma] editor server", e);
         }
     }
@@ -73,6 +75,16 @@ public final class EditorServer {
         } catch (IOException busy) {
             server = HttpServer.create(new InetSocketAddress(lo, 0), 0);
         }
+        setUp(server);
+        // "localhost" can mean the IPv6 loopback too: answer there as well (only on this PC)
+        try {
+            HttpServer v6 = HttpServer.create(new InetSocketAddress(InetAddress.getByName("::1"), server.getAddress().getPort()), 0);
+            setUp(v6);
+        } catch (IOException ignored) {}
+        return server.getAddress().getPort();
+    }
+
+    private static void setUp(HttpServer server) {
         server.createContext("/", EditorServer::page);
         server.createContext("/api/palette", EditorServer::palette);
         server.createContext("/api/save", EditorServer::save);
@@ -96,7 +108,6 @@ public final class EditorServer {
             return t;
         }));
         server.start();
-        return server.getAddress().getPort();
     }
 
     // ------------------------------------------------------------------ handlers

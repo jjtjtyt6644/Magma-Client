@@ -8,6 +8,7 @@ import dev.magma.client.setting.ButtonSetting;
 import dev.magma.client.setting.ModeSetting;
 import dev.magma.client.setting.TextSetting;
 import dev.magma.client.util.Chat;
+import dev.magma.client.util.ColorUtil;
 import dev.magma.client.util.Notify;
 import dev.magma.client.util.PlayerControl;
 import dev.magma.client.util.Schematic;
@@ -69,6 +70,10 @@ public class Builder extends Module {
     public final ButtonSetting buildBtn = add(new ButtonSetting("Build", "Start building the loaded schematic where it's shown.", "Start building", () -> startBuilding()));
     public final ButtonSetting editorBtn = add(new ButtonSetting("Image Converter", "Open the website that turns a picture into a schematic you can edit.", "Open editor", () -> dev.magma.client.util.EditorServer.open()));
     public final ButtonSetting openFolder = add(new ButtonSetting("Schematics", "Open the folder to drop schematic files into.", "Open folder", Builder::openFolder));
+    public final BoolSetting useChests = add(new BoolSetting("Use Supply Chests", "When you run out of a block, walk to your supply chests and take more.", true));
+    public final TextSetting chests = add(new TextSetting("Supply Chests", "", "", null, 2000).visibleWhen(() -> false));
+    public final ButtonSetting addChest = add(new ButtonSetting("Add Supply Chest", "The menu hides - right-click the chest, barrel or shulker box that holds your building blocks.", "Pick a chest", this::startPicking));
+    public final ButtonSetting clearChestsBtn = add(new ButtonSetting("Forget Chests", "Remove every supply chest you picked in this world.", "Forget all", this::forgetChests));
 
     /** Properties the game sets by itself (connections, power, ...). They don't need to match. */
     private static final Set<String> AUTO_PROPS = Set.of("waterlogged", "powered", "shape", "north", "south", "east", "west",
@@ -125,6 +130,15 @@ public class Builder extends Module {
 
     public String status() { return status; }
 
+    /** 0..1 while building, -1 otherwise (for the menu's progress bar). */
+    public float progress() {
+        if (!building || schem == null) return -1;
+        return totalPlace == 0 ? 1 : (float) (totalPlace - toPlace) / totalPlace;
+    }
+
+    public String schematicName() { return schem == null ? null : schem.name; }
+    public int blocksLeft() { return toPlace; }
+
     // ------------------------------------------------------------------ commands / start
 
     /** .build name [rotation] | .build start | .build stop | .build clear | .build here | .build rotate | .build list | .build folder */
@@ -133,7 +147,7 @@ public class Builder extends Module {
         Builder b = ModuleManager.get(Builder.class);
         String[] a = msg.trim().split("\\s+");
         if (a.length == 1) {
-            Chat.info("Builder: .build <file> loads it | .build editor (image to schematic) | .build start | .build stop | .build clear | .build here | .build rotate | .build list | .build folder");
+            Chat.info("Builder: .build <file> loads it | .build editor (image to schematic) | .build chest (add a supply chest) | .build start | .build stop | .build clear | .build here | .build rotate | .build list | .build folder");
             Chat.info("Put schematics (.schem, .litematic, .nbt) in " + Schematic.folder());
             return true;
         }
@@ -149,6 +163,11 @@ public class Builder extends Module {
                 else for (Path p : l) Chat.info(" - " + p.getFileName());
             }
             case "folder" -> openFolder();
+            case "chest", "addchest" -> b.startPicking();
+            case "chests" -> {
+                if (a.length > 2 && a[2].equalsIgnoreCase("clear")) b.forgetChests();
+                else Chat.info("Builder: " + b.chestsHere().size() + " supply chest(s) here. .build chest adds one, .build chests clear forgets them.");
+            }
             case "editor", "convert", "web" -> dev.magma.client.util.EditorServer.open();
             default -> {
                 if (a.length > 2 && List.of("0", "90", "180", "270").contains(a[2])) b.rotation.set(a[2]);
@@ -191,7 +210,7 @@ public class Builder extends Module {
         Chat.info("Builder: loaded " + schem.name + " (" + schem.sizeX + "x" + schem.sizeY + "x" + schem.sizeZ + ", "
                 + schem.solidCount() + " blocks)" + (schem.unknown > 0 ? " - " + schem.unknown + " unknown blocks skipped" : "") + ".");
         Chat.info("Hold a stick: right-click = move here, left-click = rotate, arrow keys (or Shift+scroll) = nudge, PgUp/PgDn = up/down. Then .build start");
-        Notify.show("Schematic loaded - place it with a stick", Theme.accent());
+        Notify.show("Schematic loaded: " + schem.name, "Hold a stick: right-click moves it, left-click turns it, arrow keys nudge it. Then type .build start.", Theme.accent());
     }
 
     private static Rotation rotationOf(int quarter) {
@@ -260,6 +279,7 @@ public class Builder extends Module {
         moveGoal = null;
         breaking = null;
         startedAt = System.currentTimeMillis();
+        resetRestock();
         rescan();
         totalPlace = toPlace;
         ensureJunk();
@@ -279,6 +299,8 @@ public class Builder extends Module {
         if (breaking != null && mc.gameMode != null) mc.gameMode.stopDestroyBlock();
         breaking = null;
         PlayerControl.releaseMovement();
+        if (restockChest != null && mc.player != null && mc.player.containerMenu != mc.player.inventoryMenu) mc.player.closeContainer();
+        resetRestock();
         status = "Preview";
         if (!leaving) saveState(); // leaving the world isn't "stopping": keep "was building" so it carries on next time
         if (say) Chat.info("Builder: paused. .build start to continue, .build clear to remove it.");
@@ -287,9 +309,13 @@ public class Builder extends Module {
     @Override
     protected void onEnable() {
         if (schem == null) mc.execute(() -> {
-            // switched on from the menu with nothing loaded: load the typed file
             setEnabled(false);
-            load(null);
+            if (file.get().isBlank()) {
+                // switched on from the menu with no file typed: open Builder Studio to make one
+                dev.magma.client.util.EditorServer.open();
+            } else {
+                load(null); // load the typed file
+            }
         });
     }
 
@@ -374,6 +400,7 @@ public class Builder extends Module {
     }
 
     private void onStickClick(net.neoforged.neoforge.client.event.InputEvent.InteractionKeyMappingTriggered e) {
+        if (picking && mc.screen == null && pickClick(e)) return;
         if (!isEnabled() || schem == null || building || !holdingStick() || mc.screen != null) return;
         e.setCanceled(true);
         e.setSwingHand(false);
@@ -382,7 +409,7 @@ public class Builder extends Module {
         lastStickAction = now;
         if (e.isAttack()) {
             rotate();
-            Notify.show("Rotated " + rot * 90 + "°", Theme.accent());
+            Notify.show("Turned to " + rot * 90 + "°", "Left-click with the stick again to keep turning it.", Theme.accent());
         } else if (e.isUseItem()) {
             if (mc.hitResult instanceof BlockHitResult bh && bh.getType() == net.minecraft.world.phys.HitResult.Type.BLOCK) {
                 moveTo(bh.getBlockPos().relative(bh.getDirection()));
@@ -445,6 +472,7 @@ public class Builder extends Module {
         deferred.entrySet().removeIf(e -> e.getValue() <= tick);
         if (cooldown > 0) { cooldown--; return; }
         if (tick % 10 == 0 || todo.isEmpty()) rescan();
+        if (restocking() ) return;
 
         if (phase == Phase.CLEANUP) {
             cleanup();
@@ -748,11 +776,11 @@ public class Builder extends Module {
         rescan();
         if (toPlace == 0) {
             Chat.info("Builder: finished " + schem.name + " in " + secs / 60 + "m " + secs % 60 + "s.");
-            Notify.show("Build finished", Theme.OK);
+            Notify.show("Build finished: " + schem.name, "Built in " + secs / 60 + "m " + secs % 60 + "s. The outline is gone - load another with .build <name>.", Theme.OK);
         } else {
             Chat.info("Builder: stopped with " + toPlace + " blocks left.");
             reportMissing();
-            Notify.show("Build stopped - " + toPlace + " left", Theme.WARN);
+            Notify.show("Build stopped - " + toPlace + " blocks left", missing.isEmpty() ? "Some spots couldn't be reached. Move closer and type .build start to try again." : "Out of materials - see chat for the list, add them to your inventory or a supply chest.", Theme.WARN);
         }
         setEnabled(false);
     }
@@ -1065,6 +1093,260 @@ public class Builder extends Module {
 
     // ------------------------------------------------------------------ inventory
 
+    // ------------------------------------------------------------------ supply chests
+
+    private boolean picking;
+    private long pickStarted;
+    private BlockPos restockChest;
+    private final Set<BlockPos> triedChests = new HashSet<>();
+    private int restockTicks, restockTakenTotal, restockLastLeft = Integer.MAX_VALUE;
+    private boolean restockOpened;
+
+    /** Saved as "dimension|x,y,z;..." so each dimension keeps its own chests. */
+    private String dimKey() {
+        return mc.level == null ? "" : mc.level.dimension().location().toString();
+    }
+
+    private List<BlockPos> chestsHere() {
+        List<BlockPos> out = new ArrayList<>();
+        String dim = dimKey() + "|";
+        for (String part : chests.get().split(";")) {
+            if (!part.startsWith(dim)) continue;
+            String[] c = part.substring(dim.length()).split(",");
+            try { out.add(new BlockPos(Integer.parseInt(c[0]), Integer.parseInt(c[1]), Integer.parseInt(c[2]))); }
+            catch (Exception ignored) {}
+        }
+        return out;
+    }
+
+    private void saveChests(List<BlockPos> here) {
+        StringBuilder sb = new StringBuilder();
+        String dim = dimKey() + "|";
+        for (String part : chests.get().split(";")) if (!part.isBlank() && !part.startsWith(dim)) sb.append(part).append(';');
+        for (BlockPos p : here) sb.append(dim).append(p.getX()).append(',').append(p.getY()).append(',').append(p.getZ()).append(';');
+        chests.set(sb.toString());
+        dev.magma.client.config.ConfigManager.save();
+    }
+
+    private void startPicking() {
+        if (mc.player == null) return;
+        picking = true;
+        pickFromMenu = mc.screen instanceof dev.magma.client.gui.MenuScreen;
+        pickStarted = System.currentTimeMillis();
+        mc.setScreen(null); // hide the menu so you can click in the world
+        Notify.progress("pick", "Pick a supply chest", "Right-click the chest, barrel or shulker box that holds your building blocks. Left-click to cancel." + (pickFromMenu ? " The menu comes back after." : ""), Theme.accent());
+    }
+
+    private void forgetChests() {
+        int n = chestsHere().size();
+        saveChests(List.of());
+        Notify.show("Supply chests forgotten", n == 0 ? "You hadn't picked any in this world." : "Removed " + n + " chest" + (n == 1 ? "" : "s") + ". Builder will only use what's in your inventory now.", Theme.WARN);
+    }
+
+    /** While picking: right-click registers the container you look at, left-click cancels. */
+    private boolean pickClick(net.neoforged.neoforge.client.event.InputEvent.InteractionKeyMappingTriggered e) {
+        if (System.currentTimeMillis() - pickStarted > 60_000) { picking = false; return false; }
+        e.setCanceled(true);
+        e.setSwingHand(false);
+        if (e.isAttack()) {
+            picking = false;
+            Notify.progress("pick", "Chest picking cancelled", "No chest was added. Press Pick a chest in the Builder settings to try again.", Theme.WARN);
+            reopenMenu();
+            return true;
+        }
+        if (!e.isUseItem()) return true;
+        if (!(mc.hitResult instanceof BlockHitResult bh) || bh.getType() != net.minecraft.world.phys.HitResult.Type.BLOCK) {
+            Notify.progress("pick", "Look at a chest", "You're not looking at a block. Aim at the chest and right-click it (left-click cancels).", Theme.WARN);
+            return true;
+        }
+        BlockPos pos = bh.getBlockPos();
+        if (!(mc.level.getBlockEntity(pos) instanceof net.minecraft.world.Container)) {
+            Notify.progress("pick", "That's not a container", mc.level.getBlockState(pos).getBlock().getName().getString() + " can't hold items. Right-click a chest, barrel or shulker box instead.", Theme.WARN);
+            return true;
+        }
+        List<BlockPos> list = new ArrayList<>(chestsHere());
+        picking = false;
+        if (list.contains(pos)) {
+            Notify.progress("pick", "Already a supply chest", "The chest at " + pos.toShortString() + " is already on the list (" + list.size() + " in this world).", Theme.accent());
+        } else {
+            list.add(pos);
+            saveChests(list);
+            Notify.progress("pick", "Supply chest added (" + list.size() + " in this world)", "At " + pos.toShortString() + ". When the Builder runs out of a block it will walk here and take more. It's outlined in orange.", Theme.OK);
+        }
+        reopenMenu();
+        return true;
+    }
+
+    private boolean pickFromMenu;
+
+    private void reopenMenu() {
+        if (pickFromMenu) mc.execute(() -> mc.setScreen(new dev.magma.client.gui.MenuScreen()));
+    }
+
+    private void resetRestock() {
+        restockChest = null;
+        restockOpened = false;
+        restockTicks = 0;
+        restockTakenTotal = 0;
+        restockLastLeft = Integer.MAX_VALUE;
+        restockAgainAt = 0;
+        triedChests.clear();
+    }
+
+    private String missingText() {
+        StringBuilder sb = new StringBuilder();
+        int k = 0;
+        for (Map.Entry<Item, Integer> e : missing.entrySet()) {
+            if (k++ == 3) { sb.append(" and ").append(missing.size() - 3).append(" more"); break; }
+            if (k > 1) sb.append(", ");
+            sb.append(e.getValue()).append(" ").append(e.getKey().getDescription().getString());
+        }
+        return sb.toString();
+    }
+
+    /** Something we need ran out: go get it. True while busy with that (the build waits). */
+    private boolean restocking() {
+        if (!useChests.get() || mc.player.getAbilities().instabuild) return false;
+        if (restockChest == null) {
+            if (missing.isEmpty() || tick < restockAgainAt) return false;
+            // only go once we're actually out of something (or haven't fetched anything this build yet)
+            boolean outOfOne = missing.keySet().stream().anyMatch(i -> count(i) == 0);
+            if (!outOfOne) return false;
+            if (toPlace < restockLastLeft) triedChests.clear(); // we've built since the last trip: chests may help again
+            List<BlockPos> sup = chestsHere();
+            sup.removeAll(triedChests);
+            if (sup.isEmpty()) return false; // nothing (more) to try
+            Vec3 me = mc.player.position();
+            sup.sort(java.util.Comparator.comparingDouble(c -> me.distanceToSqr(Vec3.atCenterOf(c))));
+            restockChest = sup.get(0);
+            restockOpened = false;
+            restockTicks = 0;
+            restockTakenTotal = 0;
+            Notify.progress("restock", "Out of materials - going to a supply chest", "Walking to the chest at " + restockChest.toShortString() + " to get " + missingText() + ". Building carries on after.", Theme.accent());
+        }
+        restockTicks++;
+        BlockPos c = restockChest;
+        if (!(mc.level.getBlockEntity(c) instanceof net.minecraft.world.Container) && mc.level.isLoaded(c)) {
+            Notify.progress("restock", "Supply chest is gone", "There's no chest at " + c.toShortString() + " any more, so it was removed from the list.", Theme.WARN);
+            List<BlockPos> l = new ArrayList<>(chestsHere());
+            l.remove(c);
+            saveChests(l);
+            endTrip(c);
+            return true;
+        }
+        var menu = mc.player.containerMenu;
+        if (menu != mc.player.inventoryMenu && restockOpened) {
+            status = "Taking materials";
+            takeFrom(menu);
+            return true;
+        }
+        if (!inReach(c)) {
+            if (restockTicks > 20 * 60) {
+                Notify.progress("restock", "Couldn't reach the supply chest", "Gave up walking to " + c.toShortString() + " after a minute. Trying the next chest, or building with what you have.", Theme.WARN);
+                endTrip(c);
+                return true;
+            }
+            walkToChest(c);
+            return true;
+        }
+        stopMoving();
+        if (!restockOpened || restockTicks % 40 == 0) {
+            // open it
+            PlayerControl.lookAt(Vec3.atCenterOf(c), 90f);
+            Vec3 hit = Vec3.atCenterOf(c).add(0, 0.5, 0);
+            mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, new BlockHitResult(hit, Direction.UP, c, false));
+            mc.player.swing(InteractionHand.MAIN_HAND);
+            restockOpened = true;
+            status = "Opening supply chest";
+        }
+        if (restockTicks > 20 * 75) endTrip(c); // never opened: move on
+        return true;
+    }
+
+    private BlockPos chestGoal;
+
+    private void walkToChest(BlockPos c) {
+        status = "Walking to supply chest";
+        AutoMiner am = ModuleManager.get(AutoMiner.class);
+        if (chestGoal != null && am.getGotoTarget() != null) return;
+        // stand next to it: a free spot with floor beside it, else on top
+        BlockPos goal = c.above();
+        for (Direction d : Direction.Plane.HORIZONTAL) {
+            BlockPos s = c.relative(d);
+            if (mc.level.getBlockState(s).getCollisionShape(mc.level, s).isEmpty()
+                    && mc.level.getBlockState(s.above()).getCollisionShape(mc.level, s.above()).isEmpty()
+                    && !mc.level.getBlockState(s.below()).getCollisionShape(mc.level, s.below()).isEmpty()) { goal = s; break; }
+        }
+        if (chestGoal != null && chestGoal.equals(goal) && am.getGotoTarget() == null) {
+            // the trip ended out of reach: try flying/stepping straight at it once more
+            chestGoal = null;
+        }
+        am.placedLog = scaffold;
+        am.startGotoQuiet(goal, true);
+        am.tripLabel = "Supply chest";
+        chestGoal = goal;
+    }
+
+    /** Shift-click what we're missing out of the open chest, a few stacks per tick. */
+    private void takeFrom(net.minecraft.world.inventory.AbstractContainerMenu menu) {
+        var inv = mc.player.getInventory();
+        Map<Item, Integer> want = new HashMap<>(missing);
+        int moved = 0;
+        boolean full = inv.getFreeSlot() < 0;
+        for (net.minecraft.world.inventory.Slot slot : menu.slots) {
+            if (slot.container == inv || !slot.hasItem()) continue;
+            ItemStack st = slot.getItem();
+            Integer need = want.get(st.getItem());
+            if (need == null || need <= 0) continue;
+            if (full && inv.getSlotWithRemainingSpace(st) < 0) continue;
+            int before = st.getCount();
+            mc.gameMode.handleInventoryMouseClick(menu.containerId, slot.index, 0, ClickType.QUICK_MOVE, mc.player);
+            int took = before - (slot.hasItem() ? slot.getItem().getCount() : 0);
+            if (took <= 0) took = before; // server answers later: assume it went in
+            restockTakenTotal += took;
+            want.put(st.getItem(), need - took);
+            missing.merge(st.getItem(), -took, Integer::sum);
+            missing.values().removeIf(v -> v <= 0);
+            if (++moved >= 3) break; // a few per tick: servers don't like 27 clicks at once
+            full = inv.getFreeSlot() < 0;
+        }
+        if (moved > 0) {
+            Notify.progress("restock", "Taking materials from the supply chest", "Took " + restockTakenTotal + " items so far" + (missing.isEmpty() ? "." : " - still looking for " + missingText() + "."), Theme.accent());
+            return;
+        }
+        // nothing more to take here
+        boolean invFull = inv.getFreeSlot() < 0;
+        mc.player.closeContainer();
+        BlockPos c = restockChest;
+        if (restockTakenTotal > 0)
+            Notify.progress("restock", "Got " + restockTakenTotal + " items - back to building",
+                    invFull ? "Your inventory is full, so I took what fits. I'll come back for more when it runs out."
+                            : "They're in your inventory now. If something is still missing, I'll check your other supply chests.", Theme.OK);
+        else
+            Notify.progress("restock", "That chest didn't have what we need", invFull ? "Your inventory is full - empty some slots so materials fit."
+                    : "No " + missingText() + " in the chest at " + c.toShortString() + ". Trying the next one, or building with what you have.", Theme.WARN);
+        boolean tookSome = restockTakenTotal > 0;
+        endTrip(c);
+        if (tookSome) triedChests.clear(); // it had stuff: worth coming back when we run out again
+    }
+
+    private int restockAgainAt;
+
+    private void endTrip(BlockPos c) {
+        triedChests.add(c);
+        restockAgainAt = tick + 40; // let the inventory catch up before deciding we're out again
+        restockLastLeft = toPlace;
+        restockChest = null;
+        restockOpened = false;
+        restockTicks = 0;
+        chestGoal = null;
+        AutoMiner am = ModuleManager.get(AutoMiner.class);
+        if (am.getGotoTarget() != null) am.cancelGoto();
+        if (mc.player.containerMenu != mc.player.inventoryMenu) mc.player.closeContainer();
+        if (restockTakenTotal == 0 && chestsHere().stream().allMatch(triedChests::contains) && !missing.isEmpty())
+            Notify.progress("restock", "Supply chests are out of " + missingText(), "Checked all " + triedChests.size() + " supply chest(s). Put more in a chest or your inventory - Builder keeps going with what it has.", Theme.WARN);
+    }
+
     private int count(Item item) {
         int n = 0;
         for (int i = 0; i < 36; i++) {
@@ -1113,6 +1395,16 @@ public class Builder extends Module {
 
     @Override
     public void onRenderLast(RenderLevelStageEvent event) {
+        List<BlockPos> sup = chestsHere();
+        if (!sup.isEmpty() && (schem != null || picking)) {
+            BlockPos going = restockChest;
+            WorldRender.draw(event, b -> {
+                for (BlockPos c : sup) {
+                    int col = c.equals(going) ? 0xFF66BB6A : 0xFFFFB74D;
+                    b.block(c, col, ColorUtil.withAlpha(col, 40));
+                }
+            });
+        }
         if (schem == null || origin == null) return;
         BlockPos o = origin;
         Vec3 cam = event.getCamera().getPosition();
@@ -1160,6 +1452,8 @@ public class Builder extends Module {
                     : "Hold a stick to move or rotate it");
             lines.add("Type .build start to build  ·  .build clear to remove");
         }
+        int nc = chestsHere().size();
+        if (nc > 0 && useChests.get()) lines.add("Supply chests: " + nc + (restockChest != null ? "  ·  getting materials" : ""));
         if (!missing.isEmpty()) {
             StringBuilder sb = new StringBuilder("Missing: ");
             int k = 0;

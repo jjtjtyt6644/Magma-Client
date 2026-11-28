@@ -70,9 +70,8 @@ public class Xray extends Module {
 
     @Override public String getInfo() { return mode.get() + " " + found.size(); }
 
-    /** Sodium/Embeddium replace vanilla chunk meshing, so the Classic (hide-other-blocks) trick can't work there. */
-    public static final boolean CLASSIC_SUPPORTED = !net.neoforged.fml.ModList.get().isLoaded("sodium")
-            && !net.neoforged.fml.ModList.get().isLoaded("embeddium");
+    /** Works with vanilla and with Sodium (we hook Sodium's own chunk builder); Embeddium's builder isn't hooked. */
+    public static final boolean CLASSIC_SUPPORTED = !net.neoforged.fml.ModList.get().isLoaded("embeddium");
 
     public boolean isClassic() { return CLASSIC_SUPPORTED && (mode.is("Classic") || mode.is("Both")); }
     public boolean isEsp() { return mode.is("ESP") || mode.is("Both") || !CLASSIC_SUPPORTED; }
@@ -86,7 +85,7 @@ public class Xray extends Module {
     @Override
     protected void onEnable() {
         if (!CLASSIC_SUPPORTED && !mode.is("ESP")) {
-            dev.magma.client.util.Notify.show("Sodium detected: Classic X-Ray unavailable, using ESP", Theme.WARN);
+            dev.magma.client.util.Notify.show("Classic X-Ray isn't available", "Embeddium replaces how chunks are drawn, so X-Ray shows ores with the glowing ESP style instead.", Theme.WARN);
         }
         timer = 0;
         lastHash = settingsHash();

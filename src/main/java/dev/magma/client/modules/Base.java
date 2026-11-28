@@ -49,7 +49,7 @@ public class Base extends Module {
         dimension.set(dimName(mc.level.dimension()));
         dev.magma.client.config.ConfigManager.save();
         Chat.info("Base set to " + p.toShortString() + " (" + dimension.get() + ").");
-        Notify.show("Base saved", Theme.OK);
+        Notify.show("Base saved", "Base is " + p.toShortString() + ". Type .base (or turn on Base) to walk home from anywhere.", Theme.OK);
     }
 
     /** The base position as typed, or null if not set / invalid. */

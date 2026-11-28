@@ -530,7 +530,7 @@ public class AutoMiner extends Module {
             BlockPos home = base.targetFromHere();
             if (home != null) {
                 Chat.info("AutoMiner: inventory full (" + mined + " ores this run) - heading back to base" + base.dimensionNote() + ".");
-                dev.magma.client.util.Notify.show("Full - returning to base", Theme.accent());
+                dev.magma.client.util.Notify.show("Inventory full - going home", "AutoMiner is walking back to your Base to unload. It stops when it gets there.", Theme.accent());
                 returningHome = true;
                 startGoto(home, true, false, false);
                 tripLabel = "Returning to base";
@@ -933,7 +933,7 @@ public class AutoMiner extends Module {
         finishingGoto = true;
         try {
             if (!gotoQuiet) {
-                dev.magma.client.util.Notify.show(msg, arrived ? Theme.OK : Theme.WARN);
+                dev.magma.client.util.Notify.show(arrived ? tripLabel + ": arrived" : tripLabel + " stopped", msg, arrived ? Theme.OK : Theme.WARN);
                 Chat.info(msg);
             }
             gotoQuiet = false;
@@ -945,7 +945,7 @@ public class AutoMiner extends Module {
                 returningHome = false;
                 if (arrived) {
                     Chat.info("AutoMiner: back at base with " + mined + " ores. Stopping.");
-                    dev.magma.client.util.Notify.show("Home - " + mined + " ores", Theme.OK);
+                    dev.magma.client.util.Notify.show("Back at base", "Mined " + mined + " ores this trip. AutoMiner is off - turn it on again to keep going.", Theme.OK);
                 }
                 setEnabled(false);
             } else { reset(); state = State.SEARCH; }
@@ -1196,7 +1196,7 @@ public class AutoMiner extends Module {
             }
             if (portal == null) {
                 Chat.info("AutoMiner: no Nether portal within your render distance - stopped. Walk to a portal and start it again.");
-                dev.magma.client.util.Notify.show("No portal nearby - AutoMiner stopped", Theme.WARN);
+                dev.magma.client.util.Notify.show("You died - AutoMiner stopped", "No Nether portal in range to head back through, so it stopped instead of wandering off.", Theme.WARN);
                 halt();
                 return;
             }
@@ -1945,7 +1945,7 @@ public class AutoMiner extends Module {
                     Chat.info(noPick ? "AutoMiner stopped: this needs a pickaxe and there's none in your hotbar."
                             : "AutoMiner stopped: pickaxe is almost broken (" + durabilityLeft(tool) + " left) and there's no other healthy pickaxe in your hotbar.");
                     mc.getSoundManager().play(net.minecraft.client.resources.sounds.SimpleSoundInstance.forUI(net.minecraft.sounds.SoundEvents.ITEM_BREAK, 1f));
-                    dev.magma.client.util.Notify.show(noPick ? "AutoMiner stopped - no pickaxe" : "AutoMiner stopped - pickaxe almost broken", Theme.DANGER);
+                    dev.magma.client.util.Notify.show(noPick ? "AutoMiner stopped - no pickaxe" : "AutoMiner stopped - pickaxe nearly broken", noPick ? "Put a pickaxe in your hotbar and turn AutoMiner on again." : "Repair it or put another pickaxe in your hotbar (Tool Saver stops it before it breaks).", Theme.DANGER);
                     halt();
                     return;
                 }

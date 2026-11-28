@@ -68,7 +68,7 @@ public class SafeWalk extends Module {
         in.up = in.down = in.left = in.right = false;
         if (!autoMiner && System.currentTimeMillis() - lastToast > 1500) {
             lastToast = System.currentTimeMillis();
-            Notify.show("SafeWalk: " + why, Theme.WARN);
+            Notify.show("SafeWalk stopped you: " + why, "Turn SafeWalk off (or raise Max Fall) if you really want to go there.", Theme.WARN);
         }
     }
 

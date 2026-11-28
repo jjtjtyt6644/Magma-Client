@@ -21,9 +21,51 @@ public class Hud extends Module {
     public final BoolSetting arrayList = add(new BoolSetting("Module List", "List active modules on the right.", true));
     public final BoolSetting coords = add(new BoolSetting("Coordinates", "Show XYZ (with nether/overworld conversion).", true));
     public final BoolSetting minerCard = add(new BoolSetting("Miner Card", "Status card while AutoMiner runs.", true));
+    public final BoolSetting menuCard = add(new BoolSetting("Title Screen Card", "Show Magma on the title screen and loading screens, before you join a world.", true));
+    /** Turns the HUD on once for configs made before it was on by default. */
+    public final BoolSetting defaultsApplied = add(new BoolSetting("Defaults Applied", "", false).visibleWhen(() -> false));
 
     public Hud() {
         super("HUD", "On-screen overlay: watermark, module list, coordinates.", Category.CLIENT, -1);
+        setEnabled(true); // on by default
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(net.neoforged.neoforge.client.event.ScreenEvent.Render.Post.class, this::onScreenRender);
+    }
+
+    /** Called after the config loads: older configs had the HUD off - switch it on once. */
+    public void applyDefaults() {
+        if (defaultsApplied.get()) return;
+        defaultsApplied.set(true);
+        setEnabled(true);
+        menuCard.set(true);
+        dev.magma.client.config.ConfigManager.save();
+    }
+
+    /** Before you're in a world (title screen, server list, loading screens): a small Magma card top-right. */
+    private void onScreenRender(net.neoforged.neoforge.client.event.ScreenEvent.Render.Post e) {
+        if (!isEnabled() || !menuCard.get() || mc.level != null || !ModuleManager.ready()) return;
+        GuiGraphics g = e.getGuiGraphics();
+        Font font = mc.font;
+        boolean title = e.getScreen() instanceof net.minecraft.client.gui.screens.TitleScreen;
+        String name = MagmaClient.NAME;
+        String ver = "  v" + MagmaClient.VERSION + "  ·  " + (MagmaClient.LOADER.equals("fabric") ? "Fabric" : "NeoForge");
+        int nameW = font.width(name);
+        int w1 = 23 + nameW + font.width(ver) + 8;
+        String l2 = ModuleManager.all().size() + " modules ready", l3 = "Right Shift opens the menu in game";
+        int w = title ? Math.max(w1, Math.max(font.width(l2), font.width(l3)) + 29) : w1;
+        int h = title ? 40 : 16;
+        int x = g.guiWidth() - w - 6, y = 6;
+        Render2D.shadow(g, x, y, w, h, 5, 5, 0x50000000);
+        Render2D.roundedRect(g, x, y, w, h, 5, 0xD80F1117);
+        if (title) Render2D.roundedGradient(g, x, y, w, 2, 1, Theme.accent(), Theme.accent2(), false);
+        dev.magma.client.util.Logo.draw(g, x + 4, y + 2, 12, 1f);
+        Render2D.gradientText(g, name, x + 19, y + 4 + (title ? 1 : 0), 1f, false);
+        g.drawString(font, ver, x + 19 + nameW, y + 4 + (title ? 1 : 0), Theme.TEXT_DIM, false);
+        if (title) {
+            float pulse = (float) (0.5 + 0.5 * Math.sin(System.currentTimeMillis() / 300.0));
+            Render2D.circle(g, x + 23, y + 21, 2f, ColorUtil.withAlpha(Theme.OK, 120 + (int) (135 * pulse)));
+            g.drawString(font, l2, x + 29, y + 17, Theme.TEXT, false);
+            g.drawString(font, l3, x + 19, y + 28, Theme.TEXT_MUTED, false);
+        }
     }
 
     @Override public boolean showInArrayList() { return false; }

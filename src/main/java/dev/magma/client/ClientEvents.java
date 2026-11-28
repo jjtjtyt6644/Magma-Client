@@ -52,7 +52,7 @@ public class ClientEvents {
             if (m.getKey() != -1 && m.getKey() == event.getKey()) {
                 m.toggle();
                 if (!(m instanceof dev.magma.client.modules.ClickGui)) {
-                    dev.magma.client.util.Notify.show(m.getName() + (m.isEnabled() ? " enabled" : " disabled"),
+                    dev.magma.client.util.Notify.show(m.getName() + (m.isEnabled() ? " on" : " off"), m.isEnabled() ? m.getDescription() : "Turned off with its key (" + com.mojang.blaze3d.platform.InputConstants.getKey(m.getKey(), 0).getDisplayName().getString() + ").",
                             m.isEnabled() ? dev.magma.client.util.Theme.OK : 0xFF6B7282);
                 }
                 ConfigManager.save();
@@ -124,10 +124,10 @@ public class ClientEvents {
         if (st == announcedUpdate) return;
         if (st == dev.magma.client.util.Updater.State.AVAILABLE) {
             dev.magma.client.util.Chat.info("Magma " + dev.magma.client.util.Updater.latest() + " is available - open the menu (Right Shift) and click Update.");
-            dev.magma.client.util.Notify.show("Magma update available", dev.magma.client.util.Theme.accent());
+            dev.magma.client.util.Notify.show("Magma " + dev.magma.client.util.Updater.latest() + " is out", "Open the menu (Right Shift) and press Update & restart - it saves, installs and reopens the game.", dev.magma.client.util.Theme.accent());
         } else if (st == dev.magma.client.util.Updater.State.READY) {
             dev.magma.client.util.Chat.info("Magma " + dev.magma.client.util.Updater.latest() + " downloaded - press Right Shift, then Restart now (or just restart Minecraft).");
-            dev.magma.client.util.Notify.show("Update ready - restart to finish", dev.magma.client.util.Theme.OK);
+            dev.magma.client.util.Notify.show("Update downloaded", "Restart Minecraft to finish installing Magma " + dev.magma.client.util.Updater.latest() + " (or press Restart now in the menu).", dev.magma.client.util.Theme.OK);
         }
         announcedUpdate = st;
     }
