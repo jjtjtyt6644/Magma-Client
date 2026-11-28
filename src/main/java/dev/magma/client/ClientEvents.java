@@ -78,6 +78,13 @@ public class ClientEvents {
             m.anim = Anim.approach(m.anim, m.isEnabled() ? 1f : 0f, dt * 6f);
             if (m.isEnabled()) m.onRenderHud(event.getGuiGraphics(), event.getPartialTick().getGameTimeDeltaPartialTick(true));
         }
+        if (mc.screen == null) dev.magma.client.util.Notify.render(event.getGuiGraphics());
+    }
+
+    /** With a menu open, draw notifications on top of it (otherwise they'd hide behind it). */
+    @SubscribeEvent
+    public void onScreenRender(net.neoforged.neoforge.client.event.ScreenEvent.Render.Post event) {
+        if (!ModuleManager.ready() || mc.player == null) return;
         dev.magma.client.util.Notify.render(event.getGuiGraphics());
     }
 

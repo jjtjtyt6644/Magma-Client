@@ -51,7 +51,10 @@ public class Hud extends Module {
         int nameW = font.width(name);
         int w1 = 23 + nameW + font.width(ver) + 8;
         String l2 = ModuleManager.all().size() + " modules ready", l3 = "Right Shift opens the menu in game";
-        int w = title ? Math.max(w1, Math.max(font.width(l2), font.width(l3)) + 29) : w1;
+        int big = Math.max(w1, Math.max(font.width(l2), font.width(l3)) + 29);
+        // the big card only where it can't cover the Minecraft logo (centred, ~274 wide, starts ~30 down)
+        if (title && g.guiWidth() / 2 + 140 > g.guiWidth() - big - 6) title = false;
+        int w = title ? big : w1;
         int h = title ? 40 : 16;
         int x = g.guiWidth() - w - 6, y = 6;
         Render2D.shadow(g, x, y, w, h, 5, 5, 0x50000000);

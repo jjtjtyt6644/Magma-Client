@@ -123,7 +123,7 @@ public class Builder extends Module {
     @Override
     public String getInfo() {
         if (schem == null) return null;
-        if (!building) return schem.name + " preview";
+        if (!building) return schem.name + (waitingForMaterials ? " waiting" : " preview");
         int pct = totalPlace == 0 ? 100 : (int) (100.0 * (totalPlace - toPlace) / totalPlace);
         return schem.name + " " + pct + "%";
     }
@@ -263,6 +263,8 @@ public class Builder extends Module {
             return;
         }
         if (building) return;
+        boolean resume = waitingForMaterials;
+        waitingForMaterials = false;
         AutoMiner am = ModuleManager.get(AutoMiner.class);
         if (am.isEnabled()) am.setEnabled(false);
         if (!isEnabled()) setEnabled(true);
@@ -278,12 +280,13 @@ public class Builder extends Module {
         cooldown = 0;
         moveGoal = null;
         breaking = null;
-        startedAt = System.currentTimeMillis();
+        if (!resume) startedAt = System.currentTimeMillis();
         resetRestock();
         rescan();
-        totalPlace = toPlace;
+        totalPlace = resume ? Math.max(totalPlace, toPlace) : toPlace; // resuming keeps the percentage going
         ensureJunk();
         saveState();
+        if (resume) return; // carried on by itself: no need to repeat the intro
         Chat.info("Builder: building " + schem.name + " at " + origin.toShortString() + ". .build stop pauses, .build clear removes it.");
         reportMissing();
     }
@@ -303,6 +306,7 @@ public class Builder extends Module {
         resetRestock();
         status = "Preview";
         if (!leaving) saveState(); // leaving the world isn't "stopping": keep "was building" so it carries on next time
+        if (say) waitingForMaterials = false;
         if (say) Chat.info("Builder: paused. .build start to continue, .build clear to remove it.");
     }
 
@@ -321,6 +325,7 @@ public class Builder extends Module {
 
     @Override
     protected void onDisable() {
+        waitingForMaterials = false;
         boolean keep = leaving; // leaving the world: keep it saved for next time
         stopBuilding(false);
         if (!keep) { saved.set(""); dev.magma.client.config.ConfigManager.save(); }
@@ -463,7 +468,13 @@ public class Builder extends Module {
         }
         if (!building) { // preview: just keep the ghost up to date
             if (++tick % 20 == 0 || todo.isEmpty() && ghosts.isEmpty()) rescan();
-            status = "Preview";
+            status = waitingForMaterials ? "Waiting for materials" : "Preview";
+            // paused for materials: carry on by itself once some of them show up in the inventory
+            if (waitingForMaterials && tick % 20 == 0 && mc.screen == null
+                    && (toPlace == 0 || waitingFor.stream().anyMatch(i -> count(i) > 0))) {
+                Notify.progress("restock", "Got materials - building again", "Found some of what was missing in your inventory, so Builder carried on where it stopped.", Theme.OK);
+                startBuilding();
+            }
             return;
         }
         if (tick % 20 == 0) ensureJunk();
@@ -778,23 +789,38 @@ public class Builder extends Module {
             Chat.info("Builder: finished " + schem.name + " in " + secs / 60 + "m " + secs % 60 + "s.");
             Notify.show("Build finished: " + schem.name, "Built in " + secs / 60 + "m " + secs % 60 + "s. The outline is gone - load another with .build <name>.", Theme.OK);
         } else {
-            Chat.info("Builder: stopped with " + toPlace + " blocks left.");
-            reportMissing();
-            Notify.show("Build stopped - " + toPlace + " blocks left", missing.isEmpty() ? "Some spots couldn't be reached. Move closer and type .build start to try again." : "Out of materials - see chat for the list, add them to your inventory or a supply chest.", Theme.WARN);
+            // keep the schematic where it is: paused, not cancelled
+            boolean outOfStuff = !missing.isEmpty();
+            stopBuilding(false);
+            if (outOfStuff) {
+                waitingFor.clear();
+                waitingFor.addAll(missing.keySet());
+                waitingForMaterials = true;
+                Notify.progress("restock", "Paused - out of materials",
+                        toPlace + " blocks left. Missing " + missingText() + ". Put them in your inventory and it carries on by itself.", Theme.WARN);
+            } else {
+                Chat.info("Builder: paused with " + toPlace + " blocks left that it couldn't reach.");
+                Notify.show("Paused - " + toPlace + " blocks out of reach", "Move closer to the build and type .build start to try them again. .build clear removes the schematic.", Theme.WARN);
+            }
+            return;
         }
         setEnabled(false);
     }
 
+    private boolean waitingForMaterials;
+    private final Set<Item> waitingFor = new HashSet<>();
+
     private void reportMissing() {
         if (missing.isEmpty()) return;
-        StringBuilder sb = new StringBuilder("Builder: missing materials - ");
+        int total = missing.values().stream().mapToInt(Integer::intValue).sum();
+        StringBuilder sb = new StringBuilder("Builder: missing " + total + " blocks - ");
         int n = 0;
         for (Map.Entry<Item, Integer> e : missing.entrySet()) {
+            if (n == 4) { sb.append(" and ").append(missing.size() - 4).append(" more kinds"); break; }
             if (n++ > 0) sb.append(", ");
-            if (n > 8) { sb.append("..."); break; }
-            sb.append(e.getValue()).append("x ").append(e.getKey().getDescription().getString());
+            sb.append(e.getValue()).append(" ").append(e.getKey().getDescription().getString());
         }
-        Chat.info(sb.toString());
+        Chat.info(sb.append(".").toString());
     }
 
     // ------------------------------------------------------------------ moving
@@ -1193,12 +1219,13 @@ public class Builder extends Module {
         triedChests.clear();
     }
 
+    /** "109 Gray Terracotta, 92 Light Gray Terracotta and 18 more kinds" - short enough for a notification. */
     private String missingText() {
         StringBuilder sb = new StringBuilder();
         int k = 0;
         for (Map.Entry<Item, Integer> e : missing.entrySet()) {
-            if (k++ == 3) { sb.append(" and ").append(missing.size() - 3).append(" more"); break; }
-            if (k > 1) sb.append(", ");
+            if (k == 2) { sb.append(" and ").append(missing.size() - 2).append(" more kind").append(missing.size() == 3 ? "" : "s"); break; }
+            if (k++ > 0) sb.append(", ");
             sb.append(e.getValue()).append(" ").append(e.getKey().getDescription().getString());
         }
         return sb.toString();
@@ -1222,7 +1249,7 @@ public class Builder extends Module {
             restockOpened = false;
             restockTicks = 0;
             restockTakenTotal = 0;
-            Notify.progress("restock", "Out of materials - going to a supply chest", "Walking to the chest at " + restockChest.toShortString() + " to get " + missingText() + ". Building carries on after.", Theme.accent());
+            Notify.progress("restock", "Out of materials - going to a supply chest", "Walking to the chest at " + restockChest.toShortString() + " for " + missingText() + ". Building carries on after.", Theme.accent());
         }
         restockTicks++;
         BlockPos c = restockChest;
@@ -1344,7 +1371,7 @@ public class Builder extends Module {
         if (am.getGotoTarget() != null) am.cancelGoto();
         if (mc.player.containerMenu != mc.player.inventoryMenu) mc.player.closeContainer();
         if (restockTakenTotal == 0 && chestsHere().stream().allMatch(triedChests::contains) && !missing.isEmpty())
-            Notify.progress("restock", "Supply chests are out of " + missingText(), "Checked all " + triedChests.size() + " supply chest(s). Put more in a chest or your inventory - Builder keeps going with what it has.", Theme.WARN);
+            Notify.progress("restock", "Supply chests ran out", "Still missing " + missingText() + ". Put more in a supply chest or your inventory - Builder builds what it can meanwhile.", Theme.WARN);
     }
 
     private int count(Item item) {
@@ -1447,7 +1474,10 @@ public class Builder extends Module {
                 + (building ? "  " + getInfo().replace(schem.name + " ", "") : ""));
         lines.add("At " + origin.getX() + " " + origin.getY() + " " + origin.getZ() + "  ·  " + rot * 90 + "°"
                 + (building ? "  ·  " + status : ""));
-        if (!building) {
+        if (waitingForMaterials) {
+            lines.add("Paused: waiting for materials");
+            lines.add("Carries on by itself  ·  .build clear removes it");
+        } else if (!building) {
             lines.add(holdingStick() ? "Right-click: move here  ·  Left-click: rotate  ·  Arrows / Shift+scroll: nudge"
                     : "Hold a stick to move or rotate it");
             lines.add("Type .build start to build  ·  .build clear to remove");
