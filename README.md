@@ -1,10 +1,17 @@
 <p align="center"><img src="logo.png" width="128" alt="Magma Client logo"></p>
 
-# Magma Client v1.11.1
+# Magma Client v1.12.0
 
-A client-side utility mod for **Minecraft 1.21.1 (NeoForge 21.1.259+)**: an auto miner that never digs into lava, safe Goto, a structure finder, X-Ray and more, with a clean menu on **Right Shift**.
+A client-side utility mod for **Minecraft 1.21.1** on **NeoForge** (21.1.259+) and **Fabric** (Fabric API required): an auto miner that never digs into lava, safe Goto, a structure finder, X-Ray and more, with a clean menu on **Right Shift**.
 
 > Use it in single-player or on servers that allow it. X-Ray and automation break the rules on most public servers.
+
+## Which jar?
+Each release has two jars:
+- `magmaclient-1.21.1-x.y.z.jar` - **NeoForge** (CurseForge modpacks, NeoForge instances)
+- `magmaclient-fabric-1.21.1-x.y.z.jar` - **Fabric** (Prism/MultiMC/Modrinth Fabric instances; needs [Fabric API](https://modrinth.com/mod/fabric-api))
+
+Both work on any server (vanilla, Paper, Fabric...) - the server doesn't need Magma.
 
 ## Install (CurseForge)
 1. Download the latest `magmaclient-1.21.1-x.y.z.jar` from **[Releases](https://github.com/jjtjtyt6644/Magma-Client/releases/latest)** into your **Downloads** folder.
@@ -52,5 +59,6 @@ Start typing anywhere to search. Tab switches pages. In chat, `.toggle <module>`
 
 ## Build
 ```
-gradlew build      # needs JDK 21; jar ends up in build/libs
+./build-all.sh     # needs JDK 21; builds both jars into latest-jars/
 ```
+The Fabric build (`fabric/`) compiles the same source as the NeoForge one, with a small Fabric layer.

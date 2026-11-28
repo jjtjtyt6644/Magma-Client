@@ -1063,7 +1063,7 @@ public class AutoMiner extends Module {
     private boolean userMoving() {
         long w = mc.getWindow().getWindow();
         for (var k : new net.minecraft.client.KeyMapping[]{mc.options.keyUp, mc.options.keyDown, mc.options.keyLeft, mc.options.keyRight, mc.options.keyJump}) {
-            var key = k.getKey();
+            var key = com.mojang.blaze3d.platform.InputConstants.getKey(k.saveString()); // plain Minecraft (works on NeoForge and Fabric)
             if (key.getType() == com.mojang.blaze3d.platform.InputConstants.Type.KEYSYM
                     && com.mojang.blaze3d.platform.InputConstants.isKeyDown(w, key.getValue())) return true;
         }

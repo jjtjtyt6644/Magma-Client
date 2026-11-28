@@ -38,7 +38,7 @@ public class VeinMiner extends Module {
 
     public VeinMiner() {
         super("VeinMiner", "Mine one ore or log and it mines the rest of the vein or tree in reach (VeinMiner / TreeCapitator).", Category.WORLD, -1);
-        NeoForge.EVENT_BUS.addListener(this::onClick);
+        NeoForge.EVENT_BUS.addListener(PlayerInteractEvent.LeftClickBlock.class, this::onClick);
     }
 
     @Override public String getInfo() { return queue.isEmpty() ? null : queue.size() + " left"; }

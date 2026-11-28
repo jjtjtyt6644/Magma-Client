@@ -285,8 +285,7 @@ public class Xray extends Module {
                 ps.scale(scale, scale, scale);
                 ps.translate(-0.5, -0.5, -0.5);
                 dispatcher.renderSingleBlock(s, ps, source, net.minecraft.client.renderer.LightTexture.FULL_BRIGHT,
-                        net.minecraft.client.renderer.texture.OverlayTexture.NO_OVERLAY,
-                        net.neoforged.neoforge.client.model.data.ModelData.EMPTY, WorldRender.ORE);
+                        net.minecraft.client.renderer.texture.OverlayTexture.NO_OVERLAY);
                 ps.popPose();
             }
         });

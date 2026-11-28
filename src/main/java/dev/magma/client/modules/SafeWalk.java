@@ -30,7 +30,7 @@ public class SafeWalk extends Module {
     public SafeWalk() {
         super("SafeWalk", "Stops you walking into lava/fire or off big drops. AutoMiner always uses this.", Category.SAFETY, -1);
         advanced(maxFall);
-        NeoForge.EVENT_BUS.addListener(this::onInput);
+        NeoForge.EVENT_BUS.addListener(MovementInputUpdateEvent.class, this::onInput);
     }
 
     private boolean active() {

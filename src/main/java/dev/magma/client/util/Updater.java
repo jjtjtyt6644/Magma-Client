@@ -200,10 +200,14 @@ public final class Updater {
                 for (JsonElement e : assets) {
                     JsonObject a = e.getAsJsonObject();
                     String n = a.get("name").getAsString();
-                    if (!n.toLowerCase(Locale.ROOT).endsWith(".jar") || n.toLowerCase(Locale.ROOT).contains("sources")) continue;
+                    String ln = n.toLowerCase(Locale.ROOT);
+                    if (!ln.endsWith(".jar") || ln.contains("sources")) continue;
+                    // each release has a NeoForge jar and a Fabric jar: take the one for the loader we're running on
+                    boolean fabricJar = ln.contains("fabric");
+                    if (fabricJar != "fabric".equals(dev.magma.client.MagmaClient.LOADER)) continue;
                     url = a.get("browser_download_url").getAsString();
                     name = n;
-                    if (n.toLowerCase(Locale.ROOT).startsWith("magmaclient")) break;
+                    if (ln.startsWith("magmaclient")) break;
                 }
                 latest = tag;
                 checkedAt = System.currentTimeMillis();

@@ -38,3 +38,8 @@ run/
 **/src/generated/**/.cache/
 repo/
 !**/src/**/repo/
+
+### Fabric dev game + output folder ###
+fabric/run/
+fabric/run-client.log
+latest-jars/

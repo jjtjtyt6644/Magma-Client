@@ -15,7 +15,7 @@ public class FastBreak extends Module {
     public FastBreak() {
         super("FastBreak", "Mine blocks faster and with no cooldown between them.", Category.AUTOMATION, -1);
         advanced(noDelay);
-        NeoForge.EVENT_BUS.addListener(this::onBreakSpeed);
+        NeoForge.EVENT_BUS.addListener(PlayerEvent.BreakSpeed.class, this::onBreakSpeed);
     }
 
     @Override public String getInfo() { return speed.display() + "x"; }

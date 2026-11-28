@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "magmaclient",
+  "version": "${version}",
+  "name": "Magma Client",
+  "description": "Auto miner that never digs into lava, safe Goto, Builder + Builder Studio, X-Ray and more. Right Shift opens the menu.",
+  "authors": ["Magma"],
+  "contact": { "homepage": "https://github.com/jjtjtyt6644/Magma-Client" },
+  "license": "All Rights Reserved",
+  "icon": "magma_logo.png",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["dev.magma.client.fabric.FabricEntry"]
+  },
+  "mixins": ["magmaclient.fabric.mixins.json", "magmaclient.fabric.glue.mixins.json", "magmaclient.fabric.optional.mixins.json"],
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "fabric-api": "*",
+    "minecraft": "~1.21.1",
+    "java": ">=21"
+  }
+}

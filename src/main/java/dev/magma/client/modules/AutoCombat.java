@@ -36,7 +36,7 @@ public class AutoCombat extends Module {
 
     public AutoCombat() {
         super("AutoCombat", "Fights for you: hits when your attack is fully charged, then backs out of reach and circles so they can't hit back.", Category.COMBAT, -1);
-        NeoForge.EVENT_BUS.addListener(this::onInput);
+        NeoForge.EVENT_BUS.addListener(MovementInputUpdateEvent.class, this::onInput);
         advanced(range, backOff, move);
     }
 

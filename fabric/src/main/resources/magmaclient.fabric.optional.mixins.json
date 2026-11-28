@@ -1,0 +1,16 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "dev.magma.client.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "ClientLevelAccessor",
+    "PredictionHandlerAccessor",
+    "MovePacketAccessor",
+    "ClientCommonPacketListenerMixin",
+    "EntityTurnMixin",
+    "GuiCameraPlayerMixin",
+    "MinecraftAccessor"
+  ],
+  "injectors": { "defaultRequire": 0 }
+}

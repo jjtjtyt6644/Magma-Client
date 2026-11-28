@@ -106,11 +106,11 @@ public class Builder extends Module {
     public Builder() {
         super("Builder", "Builds a schematic for you: scaffolds, places every block facing the right way, then cleans up.", Category.WORLD, -1);
         advanced(clearExtra, removeScaffold, preview);
-        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(this::onStickClick);
-        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(this::onStickScroll);
-        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(this::onArrowKey);
-        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(this::onAnyTick);
-        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(this::onLeave);
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(net.neoforged.neoforge.client.event.InputEvent.InteractionKeyMappingTriggered.class, this::onStickClick);
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(net.neoforged.neoforge.client.event.InputEvent.MouseScrollingEvent.class, this::onStickScroll);
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(net.neoforged.neoforge.client.event.InputEvent.Key.class, this::onArrowKey);
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(net.neoforged.neoforge.client.event.ClientTickEvent.Post.class, this::onAnyTick);
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent.LoggingOut.class, this::onLeave);
     }
 
     @Override public boolean persistEnabled() { return false; }
@@ -1128,8 +1128,7 @@ public class Builder extends Module {
                     ps.pushPose();
                     ps.translate(p.getX() - cam.x, p.getY() - cam.y, p.getZ() - cam.z);
                     dispatcher.renderSingleBlock(st, ps, source, net.minecraft.client.renderer.LightTexture.FULL_BRIGHT,
-                            net.minecraft.client.renderer.texture.OverlayTexture.NO_OVERLAY,
-                            net.neoforged.neoforge.client.model.data.ModelData.EMPTY, WorldRender.ORE);
+                            net.minecraft.client.renderer.texture.OverlayTexture.NO_OVERLAY);
                     ps.popPose();
                 }
             });

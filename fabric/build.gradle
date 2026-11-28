@@ -1,0 +1,53 @@
+plugins {
+    id 'fabric-loom' version '1.17.21'
+}
+
+// one version for both loaders: read it from the NeoForge build
+def rootProps = new Properties()
+file('../gradle.properties').withInputStream { rootProps.load(it) }
+version = rootProps.getProperty('mod_version')
+group = 'dev.magma.client'
+base { archivesName = "magmaclient-fabric-${project.minecraft_version}" }
+
+repositories {
+    maven { name = 'ParchmentMC'; url = 'https://maven.parchmentmc.org' }
+}
+
+// same names as the NeoForge build (Mojang mappings + Parchment), so the shared code compiles unchanged
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings loom.layered() {
+        officialMojangMappings()
+        parchment("org.parchmentmc.data:parchment-${project.minecraft_version}:${project.parchment_version}@zip")
+    }
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+}
+
+// the shared Magma code lives in the NeoForge project; only the NeoForge-only bits are left out
+sourceSets.main {
+    java {
+        srcDir '../src/main/java'
+        exclude 'dev/magma/client/neoforge/**'
+        exclude 'dev/magma/client/mixin/BlockRenderDispatcherMixin.java'
+    }
+    resources {
+        srcDir '../src/main/resources'
+        exclude 'magmaclient.mixins.json', 'magmaclient.optional.mixins.json'
+    }
+}
+
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('fabric.mod.json') { expand 'version': project.version }
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+}

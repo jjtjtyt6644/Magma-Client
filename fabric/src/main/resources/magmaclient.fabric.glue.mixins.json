@@ -1,0 +1,15 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "dev.magma.client.fabric.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "FabricBlockRenderDispatcherMixin",
+    "KeyboardHandlerMixin",
+    "MouseHandlerMixin",
+    "MinecraftInputMixin",
+    "LocalPlayerInputMixin",
+    "PlayerBreakSpeedMixin"
+  ],
+  "injectors": { "defaultRequire": 1 }
+}
