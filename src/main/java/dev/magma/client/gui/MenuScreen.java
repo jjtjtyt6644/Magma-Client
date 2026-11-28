@@ -252,7 +252,7 @@ public class MenuScreen extends Screen {
 
         float ny = y + 36;
         // more pages than fit: squeeze the spacing so the last one never runs into the footer
-        float step = Math.min(NAV_H + NAV_GAP, (h - 36 - 30) / PAGES.size());
+        float step = Math.min(NAV_H + NAV_GAP, (h - 36 - 30) / (PAGES.size() + 1)); // +1: the Guide link under Settings
         float navH = Math.min(NAV_H, step - 1);
         float targetY = ny + page * step;
         if (navY < 0) navY = targetY;
@@ -285,21 +285,25 @@ public class MenuScreen extends Screen {
             hit(x + 6, iy, SIDEBAR - 12, navH, key, b -> switchPage(idx), null);
         }
 
-        // footer: the Guide (its own page in your browser) + switch to panels
+        // Guide: looks like a page, opens the Magma Guide website in your browser
+        {
+            float iy = ny + PAGES.size() * step;
+            Object key = "nav:guide";
+            float hv = anim(key, hov(key) ? 1 : 0, 16);
+            if (hv > 0.01f) Render2D.roundedRect(g, x + 6, iy, SIDEBAR - 12, navH, 4, a(ColorUtil.mulAlpha(0x0AFFFFFF, hv)));
+            text(g, "?", x + 14, iy + (navH - 8) / 2f, ColorUtil.lerp(Theme.accent(), Theme.TEXT, hv));
+            text(g, "Guide", x + 27, iy + (navH - 8) / 2f, ColorUtil.lerp(0xFF8B92A1, Theme.TEXT, hv));
+            text(g, "↗", x + SIDEBAR - 14 - font.width("↗"), iy + (navH - 8) / 2f, ColorUtil.lerp(0xFF5C6373, Theme.accent(), hv));
+            hit(x + 6, iy, SIDEBAR - 12, navH, key, b -> dev.magma.client.util.GuideServer.open(),
+                    "Opens the Magma Guide in your browser (localhost:25591): every feature explained, commands, fixes");
+        }
+
+        // footer
         float fy = y + h - 22;
-        Object gk = "guide";
-        float gh = anim(gk, hov(gk) ? 1 : 0, 16);
-        String gl = "? Guide";
-        float gw = font.width(gl) + 12;
-        Render2D.roundedRect(g, x + 8, fy, gw, 15, 4, a(ColorUtil.lerp(ColorUtil.withAlpha(Theme.accent(), 60), Theme.accent(), gh)));
-        text(g, gl, x + 14, fy + 4, ColorUtil.lerp(Theme.TEXT, 0xFF120A06, gh));
-        hit(x + 8, fy, gw, 15, gk, b -> dev.magma.client.util.GuideServer.open(),
-                "Open the Magma Guide in your browser (localhost:25591): how every feature works, chat commands, fixes");
         Object pk = "panels";
         float hv = anim(pk, hov(pk) ? 1 : 0, 16);
-        float px = x + 8 + gw + 8;
-        text(g, "▦", px, fy + 4, ColorUtil.lerp(0xFF5C6373, Theme.TEXT, hv));
-        hit(px - 3, fy, font.width("▦") + 6, 16, pk, b -> {
+        text(g, "▦ Panels", x + 12, fy + 4, ColorUtil.lerp(0xFF5C6373, Theme.TEXT, hv));
+        hit(x + 6, fy, font.width("▦ Panels") + 12, 16, pk, b -> {
             cfg().style.set("Panels");
             ConfigManager.save();
             minecraft.setScreen(new ClickGuiScreen());

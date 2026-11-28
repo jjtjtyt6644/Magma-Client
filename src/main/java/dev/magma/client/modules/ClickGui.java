@@ -13,6 +13,7 @@ public class ClickGui extends Module {
     public final NumberSetting spread = add(new NumberSetting("Gradient Spread", "How far the accent gradient shifts in hue.", 28, 0, 120, 1));
     public final BoolSetting rainbow = add(new BoolSetting("Rainbow", "Cycle the accent through every color.", false));
     public final BoolSetting blur = add(new BoolSetting("Blur", "Blur the game behind the GUI.", true));
+    public final BoolSetting guideShown = add(new BoolSetting("Guide Shown", "", false).visibleWhen(() -> false));
     public final BoolSetting tips = add(new BoolSetting("Tips", "Pop-up help: how to use a feature the first time you switch it on, and what to do when one seems stuck.", true));
     public final dev.magma.client.setting.TextSetting seenGuides = add(new dev.magma.client.setting.TextSetting("Seen Guides", "", "", null, 4000).visibleWhen(() -> false));
     public final dev.magma.client.setting.ButtonSetting resetTips = add(new dev.magma.client.setting.ButtonSetting("Show Guides Again",

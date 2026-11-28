@@ -29,12 +29,17 @@ public final class GuideServer {
 
     /** Start (if needed) and open the guide in the default browser. */
     public static void open() {
+        open(false);
+    }
+
+    /** quiet = no "opened" card (the caller shows its own). */
+    public static void open(boolean quiet) {
         try {
             int port = start();
             String url = "http://localhost:" + port + "/";
             net.minecraft.Util.getPlatform().openUri(url);
             Chat.info("Magma Guide is open in your browser: " + url);
-            Notify.show("Magma Guide opened in your browser", "localhost:" + port + " - how every feature works, the chat commands, and fixes for common problems.", Theme.OK);
+            if (!quiet) Notify.show("Magma Guide opened in your browser", "localhost:" + port + " - how every feature works, the chat commands, and fixes for common problems.", Theme.OK);
         } catch (Exception e) {
             Notify.show("Magma Guide didn't start", String.valueOf(e.getMessage()), Theme.DANGER);
         }

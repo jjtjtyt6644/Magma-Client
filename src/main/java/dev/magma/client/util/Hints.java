@@ -56,9 +56,11 @@ public final class Hints {
     private static final Map<String, Long> lastHint = new HashMap<>();
     private static final Map<String, String> lastStatus = new HashMap<>();
     private static final Map<String, Integer> sameStatusFor = new HashMap<>();
+    private static final java.util.Set<String> shownHere = new java.util.HashSet<>();
+    private static Object lastLevel;
     private static BlockPos lastPos;
     private static int stillFor;
-    private static int tick;
+    private static int tick, inWorld;
 
     private static boolean on() {
         return ModuleManager.get(ClickGui.class).tips.get();
@@ -68,7 +70,15 @@ public final class Hints {
     public static void tick() {
         Minecraft mc = Minecraft.getInstance();
         if (!ModuleManager.ready() || mc.player == null || mc.level == null) return;
+        if (mc.level != lastLevel) { lastLevel = mc.level; shownHere.clear(); } // new world / dimension: hints may help again
         ClickGui cg = ModuleManager.get(ClickGui.class);
+        // the very first time you're in a world with Magma: open the guide so you know where everything is
+        if (!cg.guideShown.get() && ++inWorld > 60) {
+            cg.guideShown.set(true);
+            ConfigManager.save();
+            GuideServer.open(true);
+            Notify.show("Welcome to Magma!", "The Magma Guide just opened in your browser - every feature explained. Press Right Shift for the menu; the Guide item there opens it again.", Theme.accent());
+        }
         // first time each feature is switched on: how to use it
         for (Module m : ModuleManager.all()) {
             boolean now = m.isEnabled();
@@ -172,6 +182,7 @@ public final class Hints {
         if (n < secs) return;
         long now = System.currentTimeMillis();
         if (now - lastHint.getOrDefault(module, 0L) < 120_000) return;
+        if (!shownHere.add(key)) return; // each hint once per world visit - no nagging
         lastHint.put(module, now);
         stuckFor.remove(key);
         Notify.show(module + ": need a hand?", text, Theme.accent());
