@@ -23,6 +23,7 @@ public class ClientEvents {
 
     @SubscribeEvent
     public void onTick(ClientTickEvent.Post event) {
+        dev.magma.client.util.Hints.tick();
         dev.magma.client.util.PlayerControl.forceAttack = false;
         if (SelfTest.ENABLED) SelfTest.tick();
         if (!ModuleManager.ready() || mc.player == null || mc.level == null) return;
@@ -149,6 +150,7 @@ public class ClientEvents {
     public void onChat(net.neoforged.neoforge.client.event.ClientChatEvent event) {
         if (!ModuleManager.ready()) return;
         String m = event.getMessage().trim();
+        if (m.equals(".guide") || m.equals(".help")) { dev.magma.client.util.GuideServer.open(); event.setCanceled(true); return; }
         if (m.startsWith(".toggle ") || m.startsWith(".t ")) { // .toggle fly
             Module mod = ModuleManager.byName(m.substring(m.indexOf(' ') + 1).trim());
             if (mod == null) dev.magma.client.util.Chat.info("No module called \"" + m.substring(m.indexOf(' ') + 1).trim() + "\".");

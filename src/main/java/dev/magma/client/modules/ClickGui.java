@@ -13,6 +13,10 @@ public class ClickGui extends Module {
     public final NumberSetting spread = add(new NumberSetting("Gradient Spread", "How far the accent gradient shifts in hue.", 28, 0, 120, 1));
     public final BoolSetting rainbow = add(new BoolSetting("Rainbow", "Cycle the accent through every color.", false));
     public final BoolSetting blur = add(new BoolSetting("Blur", "Blur the game behind the GUI.", true));
+    public final BoolSetting tips = add(new BoolSetting("Tips", "Pop-up help: how to use a feature the first time you switch it on, and what to do when one seems stuck.", true));
+    public final dev.magma.client.setting.TextSetting seenGuides = add(new dev.magma.client.setting.TextSetting("Seen Guides", "", "", null, 4000).visibleWhen(() -> false));
+    public final dev.magma.client.setting.ButtonSetting resetTips = add(new dev.magma.client.setting.ButtonSetting("Show Guides Again",
+            "Show the how-to card for every feature again the next time you switch it on.", "Reset", () -> { seenGuides.set(""); dev.magma.client.config.ConfigManager.save(); }));
     public final BoolSetting advancedSettings = add(new BoolSetting("Advanced Settings", "Show every fine-tuning option. Off = only the key settings (simpler).", false));
     public final BoolSetting checkUpdates = add(new BoolSetting("Check For Updates", "Look for a new Magma version on GitHub when the game starts.", true));
     public final BoolSetting autoUpdate = add(new BoolSetting("Auto Update", "Download new versions automatically; they install when you restart Minecraft.", true));

@@ -68,7 +68,7 @@ public class Builder extends Module {
     public final TextSetting saved = add(new TextSetting("Saved", "", "", null, 600).visibleWhen(() -> false));
     public final ButtonSetting loadBtn = add(new ButtonSetting("Load", "Show the schematic in front of you so you can place it (hold a stick to move it).", "Load here", () -> load(null)));
     public final ButtonSetting buildBtn = add(new ButtonSetting("Build", "Start building the loaded schematic where it's shown.", "Start building", () -> startBuilding()));
-    public final ButtonSetting editorBtn = add(new ButtonSetting("Image Converter", "Open the website that turns a picture into a schematic you can edit.", "Open editor", () -> dev.magma.client.util.EditorServer.open()));
+    public final ButtonSetting editorBtn = add(new ButtonSetting("Builder Studio", "Opens in your browser (localhost:25590): turn a picture into a build or design one in 3D, then press Send to Minecraft.", "Open Studio", () -> dev.magma.client.util.EditorServer.open()));
     public final ButtonSetting openFolder = add(new ButtonSetting("Schematics", "Open the folder to drop schematic files into.", "Open folder", Builder::openFolder));
     public final BoolSetting useChests = add(new BoolSetting("Use Supply Chests", "When you run out of a block, walk to your supply chests and take more.", true));
     public final TextSetting chests = add(new TextSetting("Supply Chests", "", "", null, 2000).visibleWhen(() -> false));
@@ -137,6 +137,12 @@ public class Builder extends Module {
     }
 
     public String schematicName() { return schem == null ? null : schem.name; }
+    public int supplyChestCount() { return mc.level == null ? 0 : chestsHere().size(); }
+    public void pickChest() { startPicking(); }
+    public boolean waitingForMaterials() { return waitingForMaterials; }
+    public boolean creative() { return mc.player != null && mc.player.getAbilities().instabuild; }
+    public void openStudio() { dev.magma.client.util.EditorServer.open(); }
+    public static void openSchematicsFolder() { openFolder(); }
     public int blocksLeft() { return toPlace; }
 
     // ------------------------------------------------------------------ commands / start
@@ -224,7 +230,11 @@ public class Builder extends Module {
 
     /** The spot 3 blocks in front of you, at your feet's level. */
     private BlockPos inFront() {
-        return mc.player.blockPosition().relative(mc.player.getDirection(), 3 + Math.max(schem.sizeX, schem.sizeZ) / 2);
+        BlockPos p = mc.player.blockPosition().relative(mc.player.getDirection(), 3 + Math.max(schem.sizeX, schem.sizeZ) / 2);
+        // sit on the ground there, not buried in a hill (but don't jump to the surface from a cave)
+        for (int i = 0; i < 12 && !free(p); i++) p = p.above();
+        for (int i = 0; i < 6 && free(p.below()) && mc.level.getFluidState(p.below()).isEmpty(); i++) p = p.below();
+        return p;
     }
 
     /** Put the build's bottom-centre on this spot. */
@@ -282,6 +292,7 @@ public class Builder extends Module {
         breaking = null;
         if (!resume) startedAt = System.currentTimeMillis();
         resetRestock();
+        badAside.clear();
         rescan();
         totalPlace = resume ? Math.max(totalPlace, toPlace) : toPlace; // resuming keeps the percentage going
         ensureJunk();
@@ -289,6 +300,8 @@ public class Builder extends Module {
         if (resume) return; // carried on by itself: no need to repeat the intro
         Chat.info("Builder: building " + schem.name + " at " + origin.toShortString() + ". .build stop pauses, .build clear removes it.");
         reportMissing();
+        if (!missing.isEmpty() && chestsHere().isEmpty() && !mc.player.getAbilities().instabuild)
+            Notify.show("Tip: add a supply chest", "You're missing some blocks. Put them in a chest, then in Builder settings press Pick a chest (or type .build chest) and right-click it - Builder refills from it by itself.", Theme.accent());
     }
 
     /** Stop building but keep the schematic shown (so you can move it or resume). */
@@ -310,16 +323,17 @@ public class Builder extends Module {
         if (say) Chat.info("Builder: paused. .build start to continue, .build clear to remove it.");
     }
 
+    private long lastStudioOpen;
+
     @Override
     protected void onEnable() {
         if (schem == null) mc.execute(() -> {
             setEnabled(false);
-            if (file.get().isBlank()) {
-                // switched on from the menu with no file typed: open Builder Studio to make one
-                dev.magma.client.util.EditorServer.open();
-            } else {
-                load(null); // load the typed file
-            }
+            if (mc.screen instanceof dev.magma.client.gui.MenuScreen) dev.magma.client.gui.MenuScreen.expand(this); // show the how-to steps
+            // switched on with nothing loaded: open Builder Studio in the browser straight away (make or pick a build there)
+            long now = System.currentTimeMillis();
+            if (now - lastStudioOpen > 15_000) { lastStudioOpen = now; dev.magma.client.util.EditorServer.open(); }
+            if (!file.get().isBlank()) load(null); // and load the file typed in settings, if any
         });
     }
 
@@ -470,10 +484,15 @@ public class Builder extends Module {
             if (++tick % 20 == 0 || todo.isEmpty() && ghosts.isEmpty()) rescan();
             status = waitingForMaterials ? "Waiting for materials" : "Preview";
             // paused for materials: carry on by itself once some of them show up in the inventory
-            if (waitingForMaterials && tick % 20 == 0 && mc.screen == null
-                    && (toPlace == 0 || waitingFor.stream().anyMatch(i -> count(i) > 0))) {
-                Notify.progress("restock", "Got materials - building again", "Found some of what was missing in your inventory, so Builder carried on where it stopped.", Theme.OK);
-                startBuilding();
+            if (waitingForMaterials && tick % 20 == 0 && mc.screen == null) {
+                if (toPlace == 0 || waitingFor.stream().anyMatch(i -> count(i) > 0)) {
+                    Notify.progress("restock", "Got materials - building again", "Found some of what was missing in your inventory, so Builder carried on where it stopped.", Theme.OK);
+                    startBuilding();
+                } else if (!chestsHere().isEmpty() && tick - waitingSince > 20 * 60) {
+                    // you may have refilled a supply chest: go and look once a minute
+                    Notify.progress("restock", "Checking your supply chests again", "Seeing if you refilled them. If they're still empty Builder waits again.", Theme.accent());
+                    startBuilding();
+                }
             }
             return;
         }
@@ -540,7 +559,8 @@ public class Builder extends Module {
 
     /** Place every block in reach this tick (up to a few). Returns true if it placed anything. */
     private boolean placeInReach() {
-        if (todo.stream().anyMatch(w -> w.breakIt() && !deferred.containsKey(w.pos()))) return false; // clear blockers first
+        // a wrong block we can reach right now gets cleared first; blockers elsewhere don't hold up placing
+        if (todo.stream().anyMatch(w -> w.breakIt() && !deferred.containsKey(w.pos()) && inReach(w.pos()))) return false;
         Vec3 eye = mc.player.getEyePosition();
         List<Work> near = new ArrayList<>();
         for (Work w : todo) {
@@ -589,12 +609,16 @@ public class Builder extends Module {
      */
     private boolean clearOfMyBlocks() {
         int top = Integer.MIN_VALUE;
+        int feetY = (int) Math.floor(mc.player.getY() + 0.05);
         for (Work w : todo) {
             if (w.breakIt() || deferred.containsKey(w.pos()) || !inReach(w.pos()) || !inTheWay(w.pos())) continue;
             if (!hasItem(w.target().getBlock().asItem())) continue;
+            if (w.pos().getY() > feetY) continue; // at head height: rising would only hit the next layer - step aside instead
             top = Math.max(top, w.pos().getY());
         }
         if (top == Integer.MIN_VALUE) return false;
+        // something solid right above our head: we can't rise, let stepAside move us sideways
+        if (!free(mc.player.blockPosition().above(2))) return false;
         stopMovingGoto();
         status = "Getting out of the way";
         double want = top + 1.15; // feet just above the highest one
@@ -631,7 +655,7 @@ public class Builder extends Module {
         boolean flying = mc.player.getAbilities().mayfly && mc.player.getAbilities().instabuild;
         for (int dx = -3; dx <= 3; dx++) for (int dz = -3; dz <= 3; dz++) for (int dy = -1; dy <= (flying ? 3 : 1); dy++) {
             BlockPos c = feet.offset(dx, dy, dz);
-            if (targets.contains(c) || targets.contains(c.above())) continue;
+            if (targets.contains(c) || targets.contains(c.above()) || badAside.contains(c)) continue;
             if (!mc.level.getBlockState(c).getCollisionShape(mc.level, c).isEmpty()
                     || !mc.level.getBlockState(c.above()).getCollisionShape(mc.level, c.above()).isEmpty()) continue;
             if (!flying && mc.level.getBlockState(c.below()).getCollisionShape(mc.level, c.below()).isEmpty()) continue;
@@ -643,23 +667,50 @@ public class Builder extends Module {
         boolean feetTarget = targets.contains(feet), headroom = mc.level.getBlockState(feet.above(2)).getCollisionShape(mc.level, feet.above(2)).isEmpty();
         if (feetTarget && headroom && !flying) { mc.options.keyJump.setDown(true); return; }
         if (best == null) { flyOrJump(); return; }
+        // walked into something on the way there: remember the spot as bad and pick another next tick
+        if (!best.equals(asideGoal)) { asideGoal = best; asideTicks = 0; asideBest = Double.MAX_VALUE; asideBestTick = 0; }
+        double left = mc.player.position().distanceTo(Vec3.atBottomCenterOf(best));
+        asideTicks++;
+        if (left < asideBest - 0.15) { asideBest = left; asideBestTick = asideTicks; }
+        if (asideTicks - asideBestTick > 25) {
+            badAside.add(best);
+            asideGoal = null;
+            PlayerControl.releaseMovement();
+            return;
+        }
         Vec3 goal = Vec3.atBottomCenterOf(best).add(0, 0.25, 0), d = goal.subtract(mc.player.position());
         if (flying) {
             mc.player.getAbilities().flying = true;
             // aim a bit above the spot and hover once there: never creep up on it and end up a hair inside the block
             if (d.length() < 0.1) mc.player.setDeltaMovement(Vec3.ZERO);
-            else mc.player.setDeltaMovement(d.normalize().scale(Math.max(0.12, Math.min(0.6, d.length() * 0.5))));
+            else {
+                Vec3 v = d.normalize().scale(Math.max(0.12, Math.min(0.6, d.length() * 0.5)));
+                if (mc.player.horizontalCollision && free(feet.above(2))) v = new Vec3(v.x * 0.3, 0.35, v.z * 0.3);
+                mc.player.setDeltaMovement(v);
+            }
         } else {
             // a short hop to the side: steer straight at it
             float yaw = (float) Math.toDegrees(Math.atan2(d.z, d.x)) - 90f;
             PlayerControl.rotate(yaw, mc.player.getXRot(), 30f);
             mc.options.keyUp.setDown(d.horizontalDistance() > 0.25);
-            mc.options.keyJump.setDown(best.getY() > feet.getY());
+            // jump up a step, or over a bump we ran into
+            mc.options.keyJump.setDown(best.getY() > feet.getY() || mc.player.horizontalCollision && mc.player.onGround());
         }
     }
 
+    private BlockPos asideGoal;
+    private int asideTicks, asideBestTick;
+    private double asideBest;
+    private final Set<BlockPos> badAside = new HashSet<>();
+
     /** Nowhere free nearby: go up (fly in creative, otherwise jump and let the next block go underneath). */
     private void flyOrJump() {
+        // never climb above the top of the build + a few blocks: past that, rising doesn't help anything
+        if (origin != null && mc.player.getY() > origin.getY() + schem.sizeY + 3) {
+            mc.player.setDeltaMovement(Vec3.ZERO);
+            badAside.clear();
+            return;
+        }
         if (mc.player.getAbilities().mayfly) {
             mc.player.getAbilities().flying = true;
             mc.player.setDeltaMovement(0, 0.5, 0);
@@ -722,9 +773,12 @@ public class Builder extends Module {
         for (Work w : todo) {
             if (!w.breakIt() || deferred.containsKey(w.pos())) continue;
             double d = eye.distanceToSqr(Vec3.atCenterOf(w.pos()));
+            // dig from the outside in: a block buried in terrain can't be reached until the ones around it are gone
+            if (!exposed(w.pos())) d += 10_000;
             if (d < bd) { bd = d; best = w; }
         }
-        if (best != null) return best;
+        if (best != null && (exposed(best.pos()) || inReach(best.pos()))) return best;
+        Work buried = best;
         // placing: layer by layer from the bottom; a layer we have no blocks for doesn't hold up the rest
         java.util.TreeMap<Integer, List<Work>> layers = new java.util.TreeMap<>();
         for (Work w : todo) {
@@ -742,7 +796,16 @@ public class Builder extends Module {
             }
             return nearestSupported != null ? nearestSupported : nearest;
         }
-        return null;
+        return buried; // only buried blockers left: try the nearest anyway
+    }
+
+    /** Has at least one side open to air (so we can get at it). */
+    private boolean exposed(BlockPos p) {
+        for (Direction d : Direction.values()) {
+            BlockPos n = p.relative(d);
+            if (mc.level.getBlockState(n).getCollisionShape(mc.level, n).isEmpty()) return true;
+        }
+        return false;
     }
 
     private void cleanup() {
@@ -796,8 +859,9 @@ public class Builder extends Module {
                 waitingFor.clear();
                 waitingFor.addAll(missing.keySet());
                 waitingForMaterials = true;
+                waitingSince = tick;
                 Notify.progress("restock", "Paused - out of materials",
-                        toPlace + " blocks left. Missing " + missingText() + ". Put them in your inventory and it carries on by itself.", Theme.WARN);
+                        toPlace + " blocks left. Missing " + missingText() + ". Put them in your inventory" + (chestsHere().isEmpty() ? " (or add a supply chest: Builder settings > Pick a chest)" : " or your supply chest") + " and it carries on by itself.", Theme.WARN);
             } else {
                 Chat.info("Builder: paused with " + toPlace + " blocks left that it couldn't reach.");
                 Notify.show("Paused - " + toPlace + " blocks out of reach", "Move closer to the build and type .build start to try them again. .build clear removes the schematic.", Theme.WARN);
@@ -808,6 +872,7 @@ public class Builder extends Module {
     }
 
     private boolean waitingForMaterials;
+    private int waitingSince;
     private final Set<Item> waitingFor = new HashSet<>();
 
     private void reportMissing() {
@@ -860,27 +925,102 @@ public class Builder extends Module {
         status = "Walking to " + pos.toShortString();
     }
 
-    /** Creative: just fly to a spot a couple of blocks beside the target (much faster than walking/pillaring). */
+    /** Creative: fly to a free spot within reach of the block, going over whatever is in the way. */
     private void flyNear(BlockPos pos) {
-        Vec3 c = Vec3.atCenterOf(pos);
-        Vec3 away = new Vec3(mc.player.getX() - c.x, 0, mc.player.getZ() - c.z);
-        if (away.lengthSqr() < 0.01) away = new Vec3(1, 0, 0);
-        Vec3 goal = c.add(away.normalize().scale(2.2)).add(0, -1.0, 0); // eyes level with the block
-        Vec3 d = goal.subtract(mc.player.position());
-        double dist = d.length();
+        if (!pos.equals(flyFor) || flyGoal == null) {
+            flyFor = pos;
+            flyGoal = freeSpotNear(pos);
+            flyTicks = 0;
+            flyBest = Double.MAX_VALUE;
+            flyBestTick = 0;
+            climbTicks = 0;
+            if (flyGoal == null) { // nowhere to stand near it: do others first
+                defer(pos, 200);
+                flyFor = null;
+                status = "Can't get near " + pos.toShortString() + " - doing other blocks first";
+                return;
+            }
+        }
         mc.player.getAbilities().flying = true;
         status = "Flying to " + pos.toShortString();
-        if (dist < 0.3) { mc.player.setDeltaMovement(Vec3.ZERO); return; }
-        Vec3 v = d.normalize().scale(Math.min(0.8, dist * 0.45));
-        if (mc.player.horizontalCollision) v = v.add(0, 0.4, 0); // bumped into something: go over it
+        Vec3 goal = Vec3.atBottomCenterOf(flyGoal).add(0, 0.1, 0);
+        Vec3 d = goal.subtract(mc.player.position());
+        double dist = d.length();
+        flyTicks++;
+        if (dist < flyBest - 0.25) { flyBest = dist; flyBestTick = flyTicks; }
+        // no progress for 3 s (walled in, ceiling...): try a different spot, then give up on this block for now
+        if (flyTicks - flyBestTick > 60 || flyTicks > 20 * 12) {
+            mc.player.setDeltaMovement(Vec3.ZERO);
+            defer(pos, 200);
+            flyFor = null;
+            flyGoal = null;
+            return;
+        }
+        if (dist < 0.25) { mc.player.setDeltaMovement(Vec3.ZERO); return; }
+        Vec3 v = d.normalize().scale(Math.min(0.7, Math.max(0.15, dist * 0.45)));
+        // something between us and the spot (or we bumped into it): rise over it first instead of pushing into it
+        Vec3 goalEye = goal.add(0, 1.62, 0);
+        boolean blocked = !clearPath(mc.player.getEyePosition(), goalEye) || !clearPath(mc.player.position().add(0, 0.2, 0), goal.add(0, 0.2, 0));
+        if (mc.player.horizontalCollision || blocked && d.horizontalDistance() > 0.6) climbTicks = Math.max(climbTicks, 4);
+        if (climbTicks > 0) {
+            climbTicks--;
+            boolean ceiling = !free(mc.player.blockPosition().above(2));
+            if (ceiling) {
+                // can't go up either: slide sideways around it
+                Vec3 side = new Vec3(-d.z, 0, d.x).normalize().scale(0.35);
+                v = new Vec3(side.x, 0, side.z);
+            } else v = new Vec3(v.x * 0.3, 0.45, v.z * 0.3);
+        }
         mc.player.setDeltaMovement(v);
-        if (++flyTicks > 20 * 15) { flyTicks = 0; defer(pos, 200); } // couldn't get there: try others first
+    }
+
+    private BlockPos flyFor, flyGoal;
+    private double flyBest;
+    private int flyBestTick, climbTicks;
+
+    /** Nothing solid between these two points. */
+    private boolean clearPath(Vec3 from, Vec3 to) {
+        var hit = mc.level.clip(new net.minecraft.world.level.ClipContext(from, to, net.minecraft.world.level.ClipContext.Block.COLLIDER,
+                net.minecraft.world.level.ClipContext.Fluid.NONE, mc.player));
+        return hit.getType() == net.minecraft.world.phys.HitResult.Type.MISS;
+    }
+
+    /** Air you could stand in (feet + head). */
+    private boolean free(BlockPos p) {
+        return mc.level.getBlockState(p).getCollisionShape(mc.level, p).isEmpty();
+    }
+
+    /** A spot to hover at: free for our body, not where a build block goes, close enough to reach the block, nearest to us. */
+    private BlockPos freeSpotNear(BlockPos target) {
+        Set<BlockPos> targets = new HashSet<>();
+        for (Work w : todo) if (!w.breakIt()) targets.add(w.pos());
+        double reach = mc.player.blockInteractionRange() - 0.6;
+        BlockPos best = null;
+        double bd = Double.MAX_VALUE;
+        Vec3 me = mc.player.position();
+        for (int dx = -4; dx <= 4; dx++) for (int dz = -4; dz <= 4; dz++) for (int dy = -3; dy <= 2; dy++) {
+            BlockPos c = target.offset(dx, dy, dz);
+            if (!free(c) || !free(c.above()) || targets.contains(c) || targets.contains(c.above())) continue;
+            if (c.equals(target) || c.above().equals(target)) continue;
+            Vec3 eye = Vec3.atBottomCenterOf(c).add(0, 1.62, 0);
+            if (eye.distanceTo(Vec3.atCenterOf(target)) > reach) continue;
+            double d = me.distanceToSqr(Vec3.atBottomCenterOf(c)) + (dy > 0 ? dy * 0.5 : 0);
+            // a spot we can't fly straight to (it's behind the wall we're building, or behind terrain) is a last resort:
+            // flying at it just pushes us into the blocks in between
+            if (!clearPath(mc.player.getEyePosition(), Vec3.atBottomCenterOf(c).add(0, 1.62, 0))
+                    || !clearPath(mc.player.position().add(0, 0.2, 0), Vec3.atBottomCenterOf(c).add(0, 0.2, 0))) d += 400;
+            if (d < bd) { bd = d; best = c; }
+        }
+        return best;
     }
 
     private int flyTicks;
 
     private void stopMoving() {
         flyTicks = 0;
+        flyFor = null;
+        flyGoal = null;
+        asideGoal = null;
         if (mc.options.keyUp.isDown() || mc.options.keyJump.isDown()) { mc.options.keyUp.setDown(false); mc.options.keyJump.setDown(false); }
         AutoMiner am = ModuleManager.get(AutoMiner.class);
         if (moveGoal != null && am.getGotoTarget() != null) am.cancelGoto();

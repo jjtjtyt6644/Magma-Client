@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Magma Guide</title>
+<style>
+:root{--bg:#0b0c10;--panel:#12141a;--panel2:#181b22;--line:#252a33;--text:#eceff4;--muted:#8a93a3;--accent:#ff7a1a;--accent2:#ffb067;--ok:#4caf50;--warn:#ffb74d;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--accent2)}
+header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:14px;padding:0 20px;height:58px;border-bottom:1px solid var(--line);background:rgba(18,20,26,.92);backdrop-filter:blur(8px)}
+.logo{font-weight:700;font-size:17px;display:flex;align-items:center;gap:8px}
+.logo b{color:var(--accent)}
+.ver{color:var(--muted);font-size:13px}
+.spacer{flex:1}
+#search{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:8px 12px;width:260px;max-width:40vw;color:var(--text);font:inherit}
+#search:focus{outline:none;border-color:var(--accent)}
+.wrap{display:grid;grid-template-columns:230px minmax(0,1fr);max-width:1180px;margin:0 auto}
+nav{position:sticky;top:58px;align-self:start;height:calc(100vh - 58px);overflow:auto;padding:18px 10px 40px 18px;border-right:1px solid var(--line)}
+nav a{display:block;color:var(--muted);text-decoration:none;padding:6px 10px;border-radius:7px;font-size:14px}
+nav a:hover{background:var(--panel2);color:var(--text)}
+nav a.on{background:#231a12;color:var(--accent2)}
+nav .grp{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#5c6373;margin:16px 10px 4px}
+main{padding:26px 34px 120px;min-width:0}
+h1{font-size:30px;margin:4px 0 6px}
+h2{font-size:22px;margin:44px 0 10px;padding-top:6px;border-top:1px solid var(--line)}
+h2:first-of-type{border-top:0}
+h3{font-size:16px;margin:22px 0 6px;color:var(--accent2)}
+p{margin:8px 0;color:#c9cfda}
+.lead{font-size:17px;color:#c9cfda;max-width:760px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 18px;margin:12px 0}
+.steps{counter-reset:s;list-style:none;padding:0;margin:10px 0}
+.steps li{counter-increment:s;position:relative;padding:10px 12px 10px 48px;margin:8px 0;background:var(--panel);border:1px solid var(--line);border-radius:10px}
+.steps li::before{content:counter(s);position:absolute;left:12px;top:10px;width:24px;height:24px;border-radius:50%;background:var(--accent);color:#1a0d02;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:13px}
+kbd,code{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:1px 6px;font:13px ui-monospace,Consolas,monospace;color:#f3d9c4}
+.feat{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;margin:12px 0}
+.f{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px;cursor:pointer;text-decoration:none;color:inherit;display:block}
+.f:hover{border-color:#3a414e}
+.f .t{display:flex;align-items:center;gap:8px;font-weight:600}
+.f .d{color:var(--muted);font-size:13px;margin-top:3px}
+.dot{width:8px;height:8px;border-radius:50%;background:#3a3f4b;flex:none}
+.dot.on{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.key{margin-left:auto;font-size:12px;color:var(--muted)}
+table{border-collapse:collapse;width:100%;margin:10px 0;font-size:14px}
+td,th{border-bottom:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+td:first-child{white-space:nowrap}
+.tip{border-left:3px solid var(--accent);background:#17130f;padding:10px 14px;border-radius:0 10px 10px 0;margin:12px 0;color:#d8c9bb}
+.warn{border-left-color:var(--warn);background:#1a1710}
+.hidden{display:none!important}
+mark{background:#5a3412;color:#fff;border-radius:3px}
+@media (max-width:800px){.wrap{grid-template-columns:1fr}nav{display:none}main{padding:18px 16px 80px}#search{width:160px}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">🔥 <span><b>Magma</b> Guide</span></div>
+  <span class="ver" id="ver"></span>
+  <div class="spacer"></div>
+  <input id="search" placeholder="Search the guide… (e.g. supply chest)" autocomplete="off">
+</header>
+<div class="wrap">
+<nav id="nav">
+  <div class="grp">Start here</div>
+  <a href="#start">Getting started</a>
+  <a href="#yours">Your features (live)</a>
+  <a href="#menu">The menu &amp; keys</a>
+  <a href="#tips">Notifications &amp; tips</a>
+  <div class="grp">Features</div>
+  <a href="#builder">Builder</a>
+  <a href="#mining">Mining</a>
+  <a href="#travel">Travel</a>
+  <a href="#villagers">Villagers</a>
+  <a href="#combat">Combat</a>
+  <a href="#utility">Utility &amp; vision</a>
+  <div class="grp">Reference</div>
+  <a href="#commands">Chat commands</a>
+  <a href="#trouble">Fixing problems</a>
+  <a href="#install">Updates &amp; installing</a>
+</nav>
+<main id="main">
+
+<section id="start">
+<h1>Welcome to Magma</h1>
+<p class="lead">Magma is a helper client for Minecraft 1.21.1 (NeoForge and Fabric). It mines, travels, builds and keeps you safe for you. This page explains every feature in plain words — search at the top right, or pick a topic on the left.</p>
+<ol class="steps">
+  <li>In a world, press <kbd>Right Shift</kbd> to open the Magma menu.</li>
+  <li>Click a feature to switch it on. <b>Right-click</b> it (or press the small ▾) to see its settings.</li>
+  <li>The first time you switch something on, a card in the bottom-right explains how to use it. If a feature gets stuck, another card tells you what to do.</li>
+  <li>This guide is always one click away: the <b>? Guide</b> button at the bottom-left of the menu, or type <code>.guide</code> in chat.</li>
+  <li>The <b>Home</b> page shows what's running, progress bars (building, trips, ores) and big buttons for the most common jobs.</li>
+</ol>
+<div class="tip">Everything only runs on your computer. This guide and Builder Studio are little websites inside the game — they're only reachable from this PC.</div>
+</section>
+
+<section id="yours">
+<h2>Your features (live)</h2>
+<p>This list comes straight from your game: a green dot means it's on right now. Click one to jump to its explanation.</p>
+<div class="feat" id="feats"><div class="f"><div class="d">Loading from the game…</div></div></div>
+</section>
+
+<section id="menu">
+<h2>The menu &amp; keys</h2>
+<table>
+<tr><th>Do this</th><th>What happens</th></tr>
+<tr><td><kbd>Right Shift</kbd></td><td>Open / close the Magma menu.</td></tr>
+<tr><td>Click a feature</td><td>Switch it on or off.</td></tr>
+<tr><td>Right-click a feature</td><td>Show its settings (the ▾ does the same).</td></tr>
+<tr><td>Middle-click a feature</td><td>Give it a key, then press the key you want. <kbd>Delete</kbd> or <kbd>Backspace</kbd> removes the key, <kbd>Esc</kbd> cancels.</td></tr>
+<tr><td><kbd>Shift</kbd> + scroll on a setting</td><td>Change it without dragging.</td></tr>
+<tr><td><kbd>K</kbd> / <kbd>X</kbd> / <kbd>L</kbd></td><td>Default keys for AutoMiner, X-Ray and LavaGuard.</td></tr>
+</table>
+<p><b>Settings</b> (bottom of the sidebar) has the menu colours, <b>Tips</b> on/off, <b>Advanced Settings</b> (shows every fine-tuning option) and updates.</p>
+</section>
+
+<section id="tips">
+<h2>Notifications &amp; tips</h2>
+<p>Cards appear in the bottom-right corner. The coloured bar tells you the kind: <span style="color:var(--accent)">orange</span> = information, <span style="color:var(--ok)">green</span> = done, <span style="color:var(--warn)">yellow</span> = needs your attention, red = problem. The thin line at the bottom shows how long the card stays.</p>
+<p>A card that shows a running job (like "Getting materials") updates itself instead of stacking up.</p>
+<div class="tip">Don't want the help cards? Menu → Settings → <b>Tips</b> off. Want the "how to use" cards again? <b>Show Guides Again</b> → Reset.</div>
+</section>
+
+<section id="builder" data-feature="Builder">
+<h2>Builder</h2>
+<p>Builder builds a schematic for you: it scaffolds, places every block facing the right way, clears blocks that are in the way and cleans up after itself.</p>
+<ol class="steps">
+  <li><b>Get a schematic.</b> Switch Builder on — <b>Builder Studio</b> opens in your browser by itself. Turn a picture into a build, or design one in 3D, then press <b>Send to Minecraft</b>. You can also drop <code>.schem</code>, <code>.litematic</code> or <code>.nbt</code> files into the schematics folder (Builder settings → Schematics → Open folder) and type the name in the <b>Schematic</b> box.</li>
+  <li><b>Put it where you want.</b> It appears in front of you as see-through blocks. Hold a <b>stick</b>: right-click moves it to where you look, left-click turns it, arrow keys nudge it, Page Up/Down raise or lower it (Shift + scroll works too).</li>
+  <li><b>(Survival) Add a supply chest.</b> Put your building blocks in a chest. In Builder settings press <b>Pick a chest</b> — the menu hides — and right-click the chest. It gets an orange outline. When a block runs out, Builder walks there, takes more and carries on.</li>
+  <li><b>Start.</b> Press <b>Start</b> in Builder's settings (or type <code>.build start</code>). Watch progress at the top of the screen and on the Home page.</li>
+</ol>
+<h3>When it runs out of blocks</h3>
+<p>It checks your supply chests first. If they're empty too, it <b>pauses</b> and keeps the schematic where it is. Put the missing blocks in your inventory and it carries on by itself (it also re-checks your supply chests once a minute).</p>
+<h3>Blocks in the way</h3>
+<p>Wrong blocks where the build goes are outlined red and get cleared first — from the outside in, so it never has to dig blindly. If the build is buried deep in a hill, raise it with the stick + Page Up.</p>
+<h3>Creative vs survival</h3>
+<p>In creative it flies to each spot and goes over obstacles. In survival it walks, pillars and bridges with junk blocks (cobblestone, dirt, netherrack) — carry some for tall builds.</p>
+<div class="tip">Builder commands: <code>.build &lt;name&gt;</code> load · <code>.build start</code> · <code>.build stop</code> pause · <code>.build clear</code> remove · <code>.build here</code> move in front of you · <code>.build rotate</code> · <code>.build chest</code> add supply chest · <code>.build chests clear</code> · <code>.build editor</code> open Studio · <code>.build list</code> · <code>.build folder</code></div>
+</section>
+
+<section id="mining">
+<h2>Mining</h2>
+<h3 data-feature="AutoMiner">AutoMiner <kbd>K</kbd></h3>
+<p>Pick the ores you want in its settings and switch it on. It finds them (like X-Ray), digs a safe route to them, mines the whole vein and picks up the drops. It never breaks a block next to lava, walls off creepers and pauses when your health is low. Move yourself and it pauses until you let go.</p>
+<div class="tip">Not finding anything? It sees about 32 blocks around. Pick more ores, or go deeper — diamonds are most common around Y -59.</div>
+<h3 data-feature="X-Ray">X-Ray <kbd>X</kbd></h3>
+<p><b>ESP</b> outlines ores through walls. <b>Classic</b> hides every other block so only ores (and lava) are left. <b>Both</b> does both. Pick which ores and how far in settings. Classic works with Sodium; with Embeddium only ESP works.</p>
+<h3 data-feature="VeinMiner">VeinMiner</h3>
+<p>Mine one ore or log and the rest of the connected vein breaks too.</p>
+<h3 data-feature="FastBreak">FastBreak · <span data-feature="AutoTool">AutoTool</span></h3>
+<p>FastBreak mines faster (lower the speed if a server complains). AutoTool switches to the best tool for the block you start mining.</p>
+<h3 data-feature="LavaGuard">LavaGuard <kbd>L</kbd></h3>
+<p>Your safety net: warns about lava nearby and refuses to break a block that would let lava out. Leave it on.</p>
+</section>
+
+<section id="travel">
+<h2>Travel</h2>
+<h3 data-feature="Goto">Goto</h3>
+<p>Type X Y Z in its settings, or <code>.goto x y z</code> in chat, then switch it on. It walks, bridges, pillars and digs there safely. The <b>Use</b> buttons fill in your Base, your last death or where you're standing. <b>Exact Height</b> off (recommended) lands you on safe ground at that X/Z.</p>
+<h3 data-feature="Base">Base</h3>
+<p>Press <b>Set here</b> where your base is. Switch Base on any time (or type <code>.base</code>) to walk home.</p>
+<h3 data-feature="AutoFind">AutoFind</h3>
+<p>Pick a structure (Village, Fortress, Stronghold, Ancient City…) and switch it on. It scans what's loaded, explores outward if needed, then walks you there. Fortresses and bastions are only in the Nether; villages, strongholds and monuments only in the Overworld.</p>
+<h3 data-feature="Scaffold">Scaffold · <span data-feature="SafeWalk">SafeWalk</span> · <span data-feature="NoFall">NoFall</span></h3>
+<p>Scaffold places blocks under you as you walk (keep blocks in your hotbar). SafeWalk stops you walking off edges, into lava or fire. NoFall removes fall damage.</p>
+<h3 data-feature="AutoWalk">AutoWalk · <span data-feature="Fly">Fly</span> · <span data-feature="Freecam">Freecam</span></h3>
+<p>AutoWalk keeps walking forward. Fly lets you fly (Space up, sneak down). Freecam lets your camera float while your player stays put.</p>
+</section>
+
+<section id="villagers" data-feature="VillagerRoller">
+<h2>Villagers — VillagerRoller</h2>
+<ol class="steps">
+  <li>Find a villager without a job (or one you haven't traded with) and stand within 3 blocks.</li>
+  <li>Keep its job block in your inventory — lectern for librarians, composter for farmers, and so on (any job works).</li>
+  <li>In VillagerRoller settings pick the <b>Books Wanted</b> and/or <b>Items Wanted</b>, the <b>Max Price</b> and whether you want max level only.</li>
+  <li>Switch it on. It breaks and re-places the job block until the villager offers what you want, then stops and tells you.</li>
+</ol>
+<div class="tip warn">Once you trade with a villager its trades are locked forever — roll first, trade after.</div>
+</section>
+
+<section id="combat">
+<h2>Combat</h2>
+<h3 data-feature="AutoCombat">AutoCombat</h3>
+<p>Fights the nearest enemy you can see: steps in when your attack is fully charged, hits at the edge of reach, then backs out of their reach and circles. Choose Players and/or Monsters in settings; turn off <b>Move For Me</b> if you only want it to aim and hit.</p>
+<h3 data-feature="PlayerESP">PlayerESP</h3>
+<p>Boxes around other players through walls, coloured by distance. Most useful on servers.</p>
+</section>
+
+<section id="utility">
+<h2>Utility &amp; vision</h2>
+<h3 data-feature="AutoEat">AutoEat</h3><p>Eats from your hotbar or inventory when you're hungry or hurt.</p>
+<h3 data-feature="InvCleaner">InvCleaner</h3><p>Throws away the junk items you pick, so your inventory doesn't fill up while mining.</p>
+<h3 data-feature="Fullbright">Fullbright</h3><p>See in the dark (only on your screen).</p>
+<h3 data-feature="FastPlace">FastPlace</h3><p>Places blocks faster while you hold right-click.</p>
+<h3 data-feature="HUD">HUD</h3><p>The overlay: Magma watermark with FPS and ping, the list of what's on, your coordinates (with the Nether/Overworld conversion) and a card while AutoMiner or a trip runs. It's also on the title screen. Pick what shows in its settings.</p>
+</section>
+
+<section id="commands">
+<h2>Chat commands</h2>
+<p>Type these in chat (<kbd>T</kbd>). They aren't sent to the server.</p>
+<table>
+<tr><th>Command</th><th>What it does</th></tr>
+<tr><td><code>.goto x y z</code> / <code>.goto x z</code></td><td>Walk there safely.</td></tr>
+<tr><td><code>.goto base</code> · <code>.goto stop</code></td><td>Go home · stop the trip.</td></tr>
+<tr><td><code>.base</code> · <code>.base set</code></td><td>Walk home · save your base here.</td></tr>
+<tr><td><code>.toggle &lt;feature&gt;</code> (or <code>.t</code>)</td><td>Switch a feature on/off, e.g. <code>.t fly</code>.</td></tr>
+<tr><td><code>.build …</code></td><td>Builder — see the Builder section.</td></tr>
+<tr><td><code>.guide</code> (or <code>.help</code>)</td><td>Open this guide.</td></tr>
+<tr><td><code>.magma</code></td><td>List the commands in game.</td></tr>
+</table>
+</section>
+
+<section id="trouble">
+<h2>Fixing problems</h2>
+<h3>Builder Studio or this guide didn't open</h3>
+<p>Open <a href="http://localhost:25590/">localhost:25590</a> (Studio) or <a href="http://localhost:25591/">localhost:25591</a> (Guide) in your browser yourself. They only work while the game is running.</p>
+<h3>X-Ray Classic shows nothing different</h3>
+<p>Classic needs Sodium or vanilla rendering; with Embeddium it switches to ESP automatically. After changing ore lists the world redraws by itself — give it a second.</p>
+<h3>Builder seems stuck</h3>
+<p>Look at the top panel: it says what it's doing. "Waiting for materials" → add blocks or a supply chest. "Can't get near …" → the spot is buried; it digs from the outside in, or raise the build with the stick. Still stuck: <code>.build stop</code> then <code>.build start</code>.</p>
+<h3>AutoMiner / Goto doesn't move</h3>
+<p>Let go of the movement keys (moving yourself pauses it). If it says "Route locked", move a few blocks or turn on Dig Through.</p>
+<h3>A server kicks me</h3>
+<p>Turn down FastBreak speed, turn off Fly and NoFall — many servers check for those.</p>
+</section>
+
+<section id="install">
+<h2>Updates &amp; installing</h2>
+<p>Magma checks GitHub for new versions when the game starts. With <b>Auto Update</b> on, new versions download by themselves and install when you restart. On the title screen a card offers <b>Update &amp; restart</b>.</p>
+<p>There are two jars: <code>magmaclient-1.21.1-…jar</code> for NeoForge and <code>magmaclient-fabric-1.21.1-…jar</code> for Fabric (needs Fabric API). Put only one Magma jar in your mods folder.</p>
+</section>
+
+</main>
+</div>
+<script>
+// live feature list from the game
+const anchors={"Builder":"builder","AutoMiner":"mining","X-Ray":"mining","VeinMiner":"mining","FastBreak":"mining","AutoTool":"mining","LavaGuard":"mining",
+ "Goto":"travel","Base":"travel","AutoFind":"travel","Scaffold":"travel","SafeWalk":"travel","NoFall":"travel","AutoWalk":"travel","Fly":"travel","Freecam":"travel",
+ "VillagerRoller":"villagers","AutoCombat":"combat","PlayerESP":"combat","AutoEat":"utility","InvCleaner":"utility","Fullbright":"utility","FastPlace":"utility","HUD":"utility","ClickGUI":"menu"};
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+async function load(){
+  try{
+    const r=await fetch('/api/features',{cache:'no-store'}); const j=await r.json();
+    document.getElementById('ver').textContent='v'+j.version+' · '+(j.loader==='fabric'?'Fabric':'NeoForge');
+    document.getElementById('feats').innerHTML=j.features.map(f=>
+      `<a class="f" href="#${anchors[f.name]||'start'}"><div class="t"><span class="dot ${f.enabled?'on':''}"></span>${esc(f.name)}${f.key?`<span class="key"><kbd>${esc(f.key)}</kbd></span>`:''}</div><div class="d">${esc(f.description)}</div></a>`).join('');
+  }catch(e){document.getElementById('feats').innerHTML='<div class="f"><div class="d">Start Minecraft to see your features here.</div></div>'}
+}
+load(); setInterval(load,4000);
+// highlight the section you're reading
+const links=[...document.querySelectorAll('nav a')];
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){links.forEach(l=>l.classList.toggle('on',l.getAttribute('href')==='#'+e.target.id))}}),{rootMargin:'-40% 0px -55% 0px'});
+document.querySelectorAll('main section').forEach(s=>io.observe(s));
+// search: hide sections that don't match
+const q=document.getElementById('search');
+q.addEventListener('input',()=>{
+  const t=q.value.trim().toLowerCase();
+  document.querySelectorAll('main section').forEach(s=>{
+    s.classList.toggle('hidden', t && !s.textContent.toLowerCase().includes(t));
+  });
+});
+</script>
+</body>
+</html>

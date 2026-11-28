@@ -285,12 +285,21 @@ public class MenuScreen extends Screen {
             hit(x + 6, iy, SIDEBAR - 12, navH, key, b -> switchPage(idx), null);
         }
 
-        // footer
+        // footer: the Guide (its own page in your browser) + switch to panels
         float fy = y + h - 22;
+        Object gk = "guide";
+        float gh = anim(gk, hov(gk) ? 1 : 0, 16);
+        String gl = "? Guide";
+        float gw = font.width(gl) + 12;
+        Render2D.roundedRect(g, x + 8, fy, gw, 15, 4, a(ColorUtil.lerp(ColorUtil.withAlpha(Theme.accent(), 60), Theme.accent(), gh)));
+        text(g, gl, x + 14, fy + 4, ColorUtil.lerp(Theme.TEXT, 0xFF120A06, gh));
+        hit(x + 8, fy, gw, 15, gk, b -> dev.magma.client.util.GuideServer.open(),
+                "Open the Magma Guide in your browser (localhost:25591): how every feature works, chat commands, fixes");
         Object pk = "panels";
         float hv = anim(pk, hov(pk) ? 1 : 0, 16);
-        text(g, "▦ Panels", x + 12, fy + 4, ColorUtil.lerp(0xFF5C6373, Theme.TEXT, hv));
-        hit(x + 6, fy, font.width("▦ Panels") + 12, 16, pk, b -> {
+        float px = x + 8 + gw + 8;
+        text(g, "▦", px, fy + 4, ColorUtil.lerp(0xFF5C6373, Theme.TEXT, hv));
+        hit(px - 3, fy, font.width("▦") + 6, 16, pk, b -> {
             cfg().style.set("Panels");
             ConfigManager.save();
             minecraft.setScreen(new ClickGuiScreen());
@@ -723,10 +732,86 @@ public class MenuScreen extends Screen {
 
     private float settingsHeight(Module m, float w) {
         float h = 6;
+        if (m instanceof Builder bm) h += builderGuideHeight(bm, w - 24);
         for (Setting<?> s : m.getSettings()) if (s.isVisible()) h += rowHeight(s);
         if (advancedCount(m) > 0) h += 16;
         h += addonRows(m, w) * 16 + (addonRows(m, w) > 0 ? 4 : 0);
         return h + 16 + 6;
+    }
+
+    // ----------------------------------------------------------------- Builder: step-by-step guide
+
+    /** step: title, what to do, button label (or null), done?, optional? */
+    private record GuideStep(String title, String how, String button, Runnable action, boolean done, boolean optional) {}
+
+    private List<GuideStep> builderSteps(Builder b) {
+        boolean loaded = b.schematicName() != null, building = b.isBuilding();
+        int chests = b.supplyChestCount();
+        List<GuideStep> st = new ArrayList<>();
+        st.add(new GuideStep(loaded ? "1  Schematic: " + b.schematicName() : "1  Get a schematic",
+                loaded ? "Loaded and shown in the world. Load another from Studio or the Schematic box below."
+                        : "Builder Studio opens in your browser when you switch Builder on: turn a picture into a build or design one in 3D, then press Send to Minecraft. Or drop .schem / .litematic / .nbt files into the schematics folder.",
+                loaded ? null : "Open Studio", b::openStudio, loaded, false));
+        st.add(new GuideStep(loaded ? "2  Placed in front of you" : "2  Put it where you want",
+                (loaded ? "Want it somewhere else? " : "") + "Hold a stick: right-click moves it to where you look, left-click turns it, arrow keys nudge it, Page Up/Down raise or lower it.",
+                null, null, loaded, false));
+        st.add(new GuideStep(chests > 0 ? "3  Supply chests: " + chests : "3  Add a supply chest" + (b.creative() ? " (not needed in creative)" : ""),
+                chests > 0 ? "When a block runs out, Builder walks to your chest, takes more and carries on. Add more or forget them below."
+                        : "Survival: put your building blocks in a chest, press Pick a chest, then right-click that chest. Builder refills from it when it runs out.",
+                "Pick a chest", b::pickChest, chests > 0, true));
+        st.add(new GuideStep(building ? (b.waitingForMaterials() ? "Waiting for materials" : "Building...") : "4  Start building",
+                building ? "Progress shows on the Home page and the top of your screen. .build stop pauses, .build clear removes it."
+                        : b.waitingForMaterials() ? "Paused: put the missing blocks in your inventory or a supply chest - it carries on by itself."
+                        : "Press Start, or type .build start in chat. Builder scaffolds, places every block and cleans up after.",
+                building ? "Pause" : loaded ? "Start" : null, building ? () -> b.stopBuilding(true) : b::startBuilding, building, false));
+        return st;
+    }
+
+    private float builderGuideHeight(Builder b, float w) {
+        float h = 18;
+        for (GuideStep s : builderSteps(b)) h += 14 + font.split(net.minecraft.network.chat.Component.literal(s.how()), (int) (w - 30 - (s.button() != null ? 70 : 0))).size() * 10 + 6;
+        return h + 8;
+    }
+
+    private float drawBuilderGuide(GuiGraphics g, Builder b, float x, float y, float w) {
+        List<GuideStep> steps = builderSteps(b);
+        float h = builderGuideHeight(b, w) - 6;
+        Render2D.roundedRect(g, x, y, w, h, ROW_R, a(SURFACE));
+        Render2D.roundedOutline(g, x, y, w, h, ROW_R, 1, a(ColorUtil.withAlpha(Theme.accent(), 60)));
+        text(g, "How to use Builder", x + 10, y + 6, Theme.accent());
+        float sy = y + 20;
+        // the first step that isn't done (and isn't optional) is "now"
+        int current = -1;
+        for (int i = 0; i < steps.size(); i++) if (!steps.get(i).done() && !steps.get(i).optional()) { current = i; break; }
+        for (int i = 0; i < steps.size(); i++) {
+            GuideStep s = steps.get(i);
+            boolean now = i == current;
+            int dot = s.done() ? Theme.OK : now ? Theme.accent() : 0xFF3A3F4B;
+            Render2D.circle(g, x + 14, sy + 4, 3.5f, a(dot));
+            if (s.done()) text(g, "✓", x + 14 - font.width("✓") / 2f, sy, 0xFF0F1117);
+            if (i < steps.size() - 1) Render2D.rect(g, x + 13.5f, sy + 10, 1, 14, a(0x22FFFFFF));
+            int tcol = s.done() ? 0xFFB9C0CC : now ? Theme.TEXT : 0xFF8B92A1;
+            text(g, clip(s.title() + (s.optional() && !s.done() ? "  (optional)" : ""), (int) (w - 34)), x + 24, sy, tcol);
+            float textW = w - 30 - (s.button() != null ? 70 : 0);
+            var lines = font.split(net.minecraft.network.chat.Component.literal(s.how()), (int) textW);
+            float ly = sy + 12;
+            for (var l : lines) {
+                g.drawString(font, l, (int) (x + 24), (int) ly, ColorUtil.textAlpha(s.done() ? 0xFF6B7282 : 0xFF8F97A6, alpha), false);
+                ly += 10;
+            }
+            if (s.button() != null && s.action() != null) {
+                Object bk = "guide:" + i;
+                float bh = anim(bk, hov(bk) ? 1 : 0, 16);
+                float bw = Math.max(58, font.width(s.button()) + 14), bx = x + w - bw - 8, by = sy + 10;
+                int base = now || s.optional() && !s.done() ? Theme.accent() : 0xFF2A2F3A;
+                Render2D.roundedRect(g, bx, by, bw, 15, 4, a(ColorUtil.lerp(base, 0xFFFFFFFF, bh * 0.18f)));
+                text(g, s.button(), bx + bw / 2f - font.width(s.button()) / 2f, by + 4, base == 0xFF2A2F3A ? Theme.TEXT : 0xFF120A06);
+                Runnable act = s.action();
+                chit(bx, by, bw, 15, bk, btn -> { act.run(); ConfigManager.save(); }, null);
+            }
+            sy = ly + 6;
+        }
+        return y + h + 6;
     }
 
     /** One-click companion modules ("Add-ons") so people discover what works well together. */
@@ -857,6 +942,7 @@ public class MenuScreen extends Screen {
             Render2D.roundedRect(g, x, yy + 2, w, full - 4, ROW_R, a(INSET));
             Render2D.roundedOutline(g, x, yy + 2, w, full - 4, ROW_R, 1, a(0x0AFFFFFF));
             float sy = yy + 5;
+            if (m instanceof Builder bm) sy = drawBuilderGuide(g, bm, x + 12, sy, w - 24);
             for (Setting<?> s : m.getSettings()) {
                 if (!s.isVisible()) continue;
                 sy = drawSettingRow(g, s, x + 12, sy, w - 24);
@@ -869,6 +955,11 @@ public class MenuScreen extends Screen {
             yy += vis;
         }
         return yy;
+    }
+
+    /** Unfold a module's settings (e.g. Builder shows its guide when switched on with nothing loaded). */
+    public static void expand(Module m) {
+        EXPANDED.add(m);
     }
 
     private void toggleExpand(Module m) {
